@@ -1,0 +1,92 @@
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id            String    @id @default(auto()) @map("_id") @db.ObjectId
+  email         String    @unique
+  username      String?   @unique
+  password      String
+  name          String
+  avatar        String?
+  role          String    @default("roommate") // roommate, landlord, both
+  bio           String?
+  occupation    String?
+  location      String?
+  
+  // Lifestyle Preferences (Matching Brain)
+  cleanliness   String?
+  noiseLevel    String?
+  sleepRoutine  String?
+  workStyle     String?
+  smoking       Boolean   @default(false)
+  pets          Boolean   @default(false)
+  
+  listings      Listing[]
+  requestsSent  Request[] @relation("SentRequests")
+  requestsRecv  Request[] @relation("ReceivedRequests")
+  messagesSent  Message[] @relation("SentMessages")
+  messagesRecv  Message[] @relation("ReceivedMessages")
+  
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model Listing {
+  id            String    @id @default(auto()) @map("_id") @db.ObjectId
+  title         String
+  description   String
+  price         Float
+  currency      String    @default("USD")
+  listingType   String    // shared, entire
+  city          String
+  neighborhood  String
+  images        String[]
+  bedrooms      Int
+  bathrooms     Int
+  isFurnished   Boolean   @default(false)
+  moveInDate    DateTime
+  
+  ownerId       String    @db.ObjectId
+  owner         User      @relation(fields: [ownerId], references: [id])
+  requests      Request[]
+  
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model Request {
+  id            String    @id @default(auto()) @map("_id") @db.ObjectId
+  status        String    @default("pending") // pending, accepted, declined
+  message       String?
+  moveInDate    DateTime?
+  
+  senderId      String    @db.ObjectId
+  sender        User      @relation("SentRequests", fields: [senderId], references: [id])
+  
+  receiverId    String    @db.ObjectId
+  receiver      User      @relation("ReceivedRequests", fields: [receiverId], references: [id])
+  
+  listingId     String?   @db.ObjectId
+  listing       Listing?  @relation(fields: [listingId], references: [id])
+  
+  createdAt     DateTime  @default(now())
+}
+
+model Message {
+  id            String    @id @default(auto()) @map("_id") @db.ObjectId
+  text          String
+  
+  senderId      String    @db.ObjectId
+  sender        User      @relation("SentMessages", fields: [senderId], references: [id])
+  
+  receiverId    String    @db.ObjectId
+  receiver      User      @relation("ReceivedMessages", fields: [receiverId], references: [id])
+  
+  createdAt     DateTime  @default(now())
+}
