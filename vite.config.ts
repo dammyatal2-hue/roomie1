@@ -14,6 +14,8 @@ export default defineConfig({
     alias: {
       // Alias @ to the src directory
       '@': path.resolve(__dirname, './src'),
+      // Figma Make exports use this virtual prefix; resolve it to bundled assets.
+      'figma:asset': path.resolve(__dirname, './src/assets'),
     },
   },
 })

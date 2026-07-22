@@ -1,7 +1,9 @@
 import { ArrowLeft, Send, Info, Home } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { RequestStatusChip, type RequestStatus } from "./RequestStatusBadge";
 import imgEllipse18 from "figma:asset/e27dfa2b9cdb625ff364c104c1612553df96ed6a.png";
+import { supabase } from "../../lib/supabase";
+import { useAuth } from "../auth/AuthProvider";
 
 interface ChatMessage {
   id: string;
@@ -17,6 +19,7 @@ interface ChatThreadProps {
   propertyTitle?: string;
   livingSetup?: string;
   requestStatus?: RequestStatus;
+  conversationId?: string;
 }
 
 export function ChatThread({
@@ -26,43 +29,35 @@ export function ChatThread({
   propertyTitle = "Sunny 2BR in Kigali Heights",
   livingSetup = "Private Room · Shared Apartment",
   requestStatus = "accepted",
+  conversationId,
 }: ChatThreadProps) {
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: "1",
-      text: "Hi! Thanks for accepting my request. I'm really excited about the apartment!",
-      sender: "me",
-      timestamp: "10:30 AM",
-    },
-    {
-      id: "2",
-      text: "Great to hear! I'm looking forward to meeting you. When would you like to schedule a viewing?",
-      sender: "them",
-      timestamp: "10:35 AM",
-    },
-    {
-      id: "3",
-      text: "How about this weekend? Saturday morning works well for me.",
-      sender: "me",
-      timestamp: "10:37 AM",
-    },
-  ]);
+  const { user } = useAuth();
+  const [activeConversationId, setActiveConversationId] = useState(conversationId);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
 
   const [inputText, setInputText] = useState("");
 
-  const handleSend = () => {
-    if (inputText.trim() && requestStatus === "accepted") {
-      const newMessage: ChatMessage = {
-        id: Date.now().toString(),
-        text: inputText,
-        sender: "me",
-        timestamp: new Date().toLocaleTimeString("en-US", {
-          hour: "numeric",
-          minute: "2-digit",
-        }),
-      };
-      setMessages([...messages, newMessage]);
-      setInputText("");
+  useEffect(() => {
+    if (!user) return;
+    if (conversationId) return setActiveConversationId(conversationId);
+    supabase.from("conversation_members").select("conversation_id").eq("user_id", user.id).limit(1).maybeSingle().then(({ data }) => setActiveConversationId(data?.conversation_id));
+  }, [conversationId, user]);
+
+  useEffect(() => {
+    if (!activeConversationId || !user) return;
+    const load = () => supabase.from("messages").select("id,body,sender_id,created_at").eq("conversation_id", activeConversationId).order("created_at").then(({ data }) => {
+      if (data) setMessages(data.map((row: any) => ({ id: row.id, text: row.body, sender: row.sender_id === user.id ? "me" : "them", timestamp: new Date(row.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) })));
+    });
+    load();
+    const channel = supabase.channel(`messages:${activeConversationId}`).on("postgres_changes", { event: "INSERT", schema: "public", table: "messages", filter: `conversation_id=eq.${activeConversationId}` }, load).subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [activeConversationId, user]);
+
+  const handleSend = async () => {
+    if (inputText.trim() && requestStatus === "accepted" && activeConversationId && user) {
+      const body = inputText.trim(); setInputText("");
+      const { error } = await supabase.from("messages").insert({ conversation_id: activeConversationId, sender_id: user.id, body });
+      if (error) setInputText(body);
     }
   };
 

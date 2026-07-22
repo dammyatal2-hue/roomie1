@@ -1,7 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowLeft, Camera } from "lucide-react";
 import { toast } from "sonner";
 import imgProfilePhoto from "figma:asset/77938430027354896c22b7e6126a262594b019e5.png";
+import { useAuth } from "../auth/AuthProvider";
+import { supabase } from "../../lib/supabase";
 
 interface EditProfileProps {
   onBack: () => void;
@@ -58,22 +60,22 @@ const NATIONALITIES = [
 ].sort();
 
 export function EditProfile({ onBack }: EditProfileProps) {
+  const { user } = useAuth();
   const [hasChanges, setHasChanges] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
   // Form state
   const [formData, setFormData] = useState({
-    fullName: "Dammy",
-    username: "dammy_roomie",
-    email: "dammy@gmail.com",
-    dateOfBirth: "1995-06-15",
-    nationality: "Nigerian",
-    phoneNumber: "+234 803 456 7890",
-    country: "Nigeria",
-    city: "Lagos",
-    occupation: "Software Engineer",
-    bio: "Love traveling, reading, and cooking. Looking for a clean and respectful roommate who values good communication.",
+    fullName: "", username: "", email: user?.email ?? "", dateOfBirth: "", nationality: "", phoneNumber: "", country: "", city: "", occupation: "", bio: "",
   });
+
+  useEffect(() => {
+    if (!user) return;
+    supabase.from("profiles").select("*").eq("id", user.id).single().then(({ data, error }) => {
+      if (error) return toast.error(error.message);
+      setFormData({ fullName: data.full_name ?? "", username: data.username ?? "", email: user.email ?? "", dateOfBirth: data.date_of_birth ?? "", nationality: data.nationality ?? "", phoneNumber: data.phone_number ?? "", country: data.country ?? "", city: data.city ?? "", occupation: data.occupation ?? "", bio: data.bio ?? "" });
+    });
+  }, [user]);
 
   const handleChange = (field: keyof typeof formData, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
@@ -106,8 +108,10 @@ export function EditProfile({ onBack }: EditProfileProps) {
 
     setIsLoading(true);
 
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 800));
+    if (!user) return;
+    const { error } = await supabase.from("profiles").update({ full_name: formData.fullName, username: formData.username, date_of_birth: formData.dateOfBirth || null, nationality: formData.nationality || null, phone_number: formData.phoneNumber || null, country: formData.country || null, city: formData.city || null, occupation: formData.occupation || null, bio: formData.bio || null }).eq("id", user.id);
+    if (!error && formData.email !== user.email) await supabase.auth.updateUser({ email: formData.email });
+    if (error) { setIsLoading(false); toast.error(error.message); return; }
 
     setIsLoading(false);
     setHasChanges(false);

@@ -1,5 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowLeft, Check } from "lucide-react";
+import { useAuth } from "../auth/AuthProvider";
+import { supabase } from "../../lib/supabase";
 
 interface LifestylePreferencesEditorProps {
   onBack: () => void;
@@ -53,6 +55,7 @@ const petsOptions: ChipOption[] = [
 ];
 
 export function LifestylePreferencesEditor({ onBack }: LifestylePreferencesEditorProps) {
+  const { user } = useAuth();
   // Initialize with some default selections for demo
   const [cleanliness, setCleanliness] = useState<string>("moderately-clean");
   const [noiseStyle, setNoiseStyle] = useState<string>("quiet");
@@ -63,24 +66,25 @@ export function LifestylePreferencesEditor({ onBack }: LifestylePreferencesEdito
   const [pets, setPets] = useState<string>("okay-with-pets");
   const [showSaved, setShowSaved] = useState(false);
 
-  const handleSave = () => {
-    // Save preferences logic here
-    console.log("Preferences saved:", {
-      cleanliness,
-      noiseStyle,
-      workStyle,
-      sleepSchedule,
-      guests,
-      smoking,
-      pets,
+  useEffect(() => {
+    if (!user) return;
+    supabase.from("preferences").select("answers").eq("user_id", user.id).maybeSingle().then(({ data }) => {
+      const a = data?.answers as any; if (!a) return;
+      setCleanliness(a.cleanliness ?? "moderately-clean"); setNoiseStyle(a.noiseStyle ?? "quiet"); setWorkStyle(a.workStyle ?? "wfh"); setSleepSchedule(a.sleepSchedule ?? "flexible"); setGuests(a.guests ?? "sometimes"); setSmoking(a.smoking ?? "non-smoker"); setPets(a.pets ?? "okay-with-pets");
     });
+  }, [user]);
+
+  const handleSave = async () => {
+    if (!user) return;
+    const { error } = await supabase.from("preferences").upsert({ user_id: user.id, answers: { cleanliness, noiseStyle, workStyle, sleepSchedule, guests, smoking, pets } });
+    if (error) return;
 
     // Show confirmation toast
     setShowSaved(true);
     setTimeout(() => {
       setShowSaved(false);
       onBack();
-    }, 1500);
+    }, 700);
   };
 
   const renderChipGroup = (

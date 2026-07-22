@@ -11,13 +11,17 @@ import { IdealFor } from "./create-listing/IdealFor";
 import { NearbyFacilities } from "./create-listing/NearbyFacilities";
 import { PriceAndAvailability } from "./create-listing/PriceAndAvailability";
 import { PhotosAndPublish } from "./create-listing/PhotosAndPublish";
+import { useAuth } from "../auth/AuthProvider";
+import { publishListing } from "../services/roomie";
+import { toast } from "sonner";
 
 interface CreateListingProps {
   onBack: () => void;
 }
 
 function CreateListingFlow({ onBack }: CreateListingProps) {
-  const { shouldShowRoommateScreen } = useCreateListing();
+  const { shouldShowRoommateScreen, listingData, resetListing } = useCreateListing();
+  const { user } = useAuth();
   const [currentStep, setCurrentStep] = useState(1);
 
   const handleNext = () => {
@@ -32,10 +36,10 @@ function CreateListingFlow({ onBack }: CreateListingProps) {
     }
   };
 
-  const handlePublish = () => {
-    // Handle listing publication
-    console.log("Listing published!");
-    onBack();
+  const handlePublish = async () => {
+    if (!user) return toast.error("Sign in to publish a listing.");
+    try { await publishListing(user.id, listingData); resetListing(); toast.success("Listing published"); onBack(); }
+    catch (reason) { toast.error(reason instanceof Error ? reason.message : "Unable to publish listing"); }
   };
 
   // Determine which screen to show based on current step

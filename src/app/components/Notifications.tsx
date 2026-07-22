@@ -1,5 +1,8 @@
 import { ArrowLeft, Bell, Home, UserCheck, MessageCircle, XCircle, UserPlus } from "lucide-react";
 import { RequestStatusChip, type RequestStatus } from "./RequestStatusBadge";
+import { useEffect, useState } from "react";
+import { supabase } from "../../lib/supabase";
+import { useAuth } from "../auth/AuthProvider";
 
 interface Notification {
   id: string;
@@ -19,8 +22,9 @@ interface NotificationsProps {
 }
 
 export function Notifications({ onBack, onNotificationClick }: NotificationsProps) {
+  const { user } = useAuth();
   // Demo notifications data
-  const notifications: Notification[] = [
+  const fallbackNotifications: Notification[] = [
     {
       id: "1",
       type: "new_request",
@@ -79,6 +83,22 @@ export function Notifications({ onBack, onNotificationClick }: NotificationsProp
       read: true,
     },
   ];
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  useEffect(() => {
+    if (!user) return;
+    const load = () => supabase.from("notifications").select("*").eq("user_id", user.id).order("created_at", { ascending: false }).then(({ data }) => {
+      if (data) setNotifications(data.map((row: any) => ({ id: row.id, type: row.type, userName: undefined, message: row.body, timestamp: new Date(row.created_at).toLocaleString(), read: Boolean(row.read_at), requestStatus: row.type === "request_accepted" ? "accepted" : row.type === "request_declined" ? "declined" : undefined })));
+    });
+    load();
+    const channel = supabase.channel(`notifications:${user.id}`).on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications", filter: `user_id=eq.${user.id}` }, load).subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [user]);
+
+  const markAllRead = async () => {
+    if (!user) return;
+    await supabase.from("notifications").update({ read_at: new Date().toISOString() }).eq("user_id", user.id).is("read_at", null);
+    setNotifications((rows) => rows.map((row) => ({ ...row, read: true })));
+  };
 
   const getNotificationIcon = (type: Notification["type"]) => {
     switch (type) {
@@ -116,7 +136,7 @@ export function Notifications({ onBack, onNotificationClick }: NotificationsProp
               Notifications
             </h1>
           </div>
-          <button className="font-['Inter:Medium',sans-serif] font-medium text-[13px] leading-[18px] text-[#fe456a] hover:text-[#e63d5f] transition-colors">
+          <button onClick={markAllRead} className="font-['Inter:Medium',sans-serif] font-medium text-[13px] leading-[18px] text-[#fe456a] hover:text-[#e63d5f] transition-colors">
             Mark all read
           </button>
         </div>

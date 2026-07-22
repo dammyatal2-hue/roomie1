@@ -1,6 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowLeft, Clock, Check, X } from "lucide-react";
 import { ImageWithFallback } from "@/app/components/figma/ImageWithFallback";
+import { supabase } from "../../lib/supabase";
+import { useAuth } from "../auth/AuthProvider";
 
 type RequestStatus = "pending" | "accepted" | "declined";
 
@@ -47,10 +49,11 @@ export function RequestsInbox({
   onAcceptRequest,
   onDeclineRequest,
 }: RequestsInboxProps) {
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<"received" | "sent">("received");
 
   // Demo data for received requests
-  const receivedRequests: ReceivedRequest[] = [
+  const fallbackReceivedRequests: ReceivedRequest[] = [
     {
       id: "r1",
       requesterPhoto: undefined,
@@ -94,7 +97,7 @@ export function RequestsInbox({
   ];
 
   // Demo data for sent requests
-  const sentRequests: SentRequest[] = [
+  const fallbackSentRequests: SentRequest[] = [
     {
       id: "s1",
       listingImage: undefined,
@@ -133,6 +136,19 @@ export function RequestsInbox({
     },
   ];
 
+  const [receivedRequests, setReceivedRequests] = useState<ReceivedRequest[]>([]);
+  const [sentRequests, setSentRequests] = useState<SentRequest[]>([]);
+  useEffect(() => {
+    if (!user) return;
+    Promise.all([
+      supabase.from("booking_requests").select("id,status,message,created_at,listings(title,living_setup,move_in_date,minimum_stay),profiles!booking_requests_requester_id_fkey(username,avatar_url)").eq("owner_id", user.id).order("created_at", { ascending: false }),
+      supabase.from("booking_requests").select("id,status,created_at,listings(title,city,living_setup,move_in_date,minimum_stay,listing_photos(storage_path)),profiles!booking_requests_owner_id_fkey(username)").eq("requester_id", user.id).order("created_at", { ascending: false }),
+    ]).then(([received, sent]) => {
+      if (received.data) setReceivedRequests(received.data.map((row: any) => ({ id: row.id, requesterPhoto: row.profiles?.avatar_url, requesterName: row.profiles?.username ?? "Roomie member", listingName: row.listings?.title ?? "Listing", livingSetup: row.listings?.living_setup ?? "", status: row.status, messagePreview: row.message, timestamp: new Date(row.created_at).toLocaleDateString(), moveInDate: row.listings?.move_in_date ?? "", lengthOfStay: row.listings?.minimum_stay ?? "", fullMessage: row.message })));
+      if (sent.data) setSentRequests(sent.data.map((row: any) => { const path=row.listings?.listing_photos?.[0]?.storage_path; return { id: row.id, listingImage: path ? supabase.storage.from("listing-photos").getPublicUrl(path).data.publicUrl : undefined, listingTitle: row.listings?.title ?? "Listing", city: row.listings?.city ?? "", livingSetup: row.listings?.living_setup ?? "", status: row.status, dateSent: new Date(row.created_at).toLocaleDateString(), moveInDate: row.listings?.move_in_date ?? "", lengthOfStay: row.listings?.minimum_stay ?? "", hostName: row.profiles?.username }; }));
+    });
+  }, [user]);
+
   const getStatusBadge = (status: RequestStatus) => {
     const styles = {
       pending: "bg-[#FEF3C7] text-[#92400E] border-[#FDE68A]",
@@ -155,11 +171,13 @@ export function RequestsInbox({
 
   const handleAccept = (e: React.MouseEvent, requestId: string) => {
     e.stopPropagation();
+    supabase.rpc("handle_booking_request", { p_request_id: requestId, p_status: "accepted" }).then(({ error }) => { if (!error) setReceivedRequests((rows) => rows.map((row) => row.id === requestId ? { ...row, status: "accepted" } : row)); });
     onAcceptRequest?.(requestId);
   };
 
   const handleDecline = (e: React.MouseEvent, requestId: string) => {
     e.stopPropagation();
+    supabase.rpc("handle_booking_request", { p_request_id: requestId, p_status: "declined" }).then(({ error }) => { if (!error) setReceivedRequests((rows) => rows.map((row) => row.id === requestId ? { ...row, status: "declined" } : row)); });
     onDeclineRequest?.(requestId);
   };
 
