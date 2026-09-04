@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { MapPin, MessageCircle, Bell, Heart, Home as HomeIcon, ArrowRight, ChevronDown } from "lucide-react";
 import { listingService, Listing, RecommendedProfile } from "../services/listingService";
+import { useAuth } from "../auth/AuthProvider";
+import { supabase } from "../../lib/supabase";
 
 interface HomeProps {
   onOpenMessages?: () => void;
@@ -10,6 +12,8 @@ interface HomeProps {
   onStartMatching?: () => void;
   onBrowseHomes?: () => void;
   onCompletePreferences?: () => void;
+  guestMode?: boolean;
+  onViewListing?: (listingId: string) => void;
 }
 
 export function Home({
@@ -20,24 +24,48 @@ export function Home({
   onStartMatching,
   onBrowseHomes,
   onCompletePreferences,
+  guestMode = false,
+  onViewListing,
 }: HomeProps) {
-  const userName = "Dammy"; // In a real app, this would come from user data
-  const currentLocation = "Kicukiro, Kigali";
+  const { user } = useAuth();
+  const [userName, setUserName] = useState("Roomie");
+  const [currentLocation, setCurrentLocation] = useState("Add your location");
+  const [search, setSearch] = useState("");
+  const [preferencesComplete, setPreferencesComplete] = useState<boolean | null>(null);
 
   const [recommendedProfiles, setRecommendedProfiles] = useState<RecommendedProfile[]>([]);
   const [recommendedHomes, setRecommendedHomes] = useState<Listing[]>([]);
+  const [popularHomes, setPopularHomes] = useState<Listing[]>([]);
 
   useEffect(() => {
     const fetchData = async () => {
-      const [profiles, homes] = await Promise.all([
-        listingService.getRecommendedProfiles(),
-        listingService.getRecommendedHomes()
+      let country: string | undefined;
+      let city: string | undefined;
+      if (user) {
+        const [{ data }, { data: preference }] = await Promise.all([
+          supabase.from("profiles").select("full_name,username,city,country").eq("id", user.id).single(),
+          supabase.from("preferences").select("answers").eq("user_id", user.id).maybeSingle(),
+        ]);
+        if (data) { setUserName(data.full_name || data.username || "Roomie"); setCurrentLocation(data.city || "Add your location"); country=data.country || undefined; city=data.city || undefined; }
+        const answers = preference?.answers && typeof preference.answers === "object" ? preference.answers as Record<string, unknown> : {};
+        setPreferencesComplete(answers.completed === true || Object.keys(answers).length > 0);
+      }
+      const [profiles, homes, popular] = await Promise.all([
+        city ? listingService.getRecommendedProfiles(city, user?.id) : Promise.resolve([]),
+        listingService.getRecommendedHomes(guestMode ? undefined : country),
+        listingService.getPopularHomes(guestMode ? undefined : country).catch(() => []),
       ]);
       setRecommendedProfiles(profiles);
       setRecommendedHomes(homes);
+      setPopularHomes(popular);
     };
     fetchData();
-  }, []);
+  }, [guestMode, user]);
+  const topLocations = [...new Set(recommendedHomes.map((home) => [home.city, home.country].filter(Boolean).join(", ")).filter(Boolean))].slice(0, 8);
+  const listingSections = [
+    { key: "roommate", title: "Shared homes & rooms", subtitle: "Find a room and compatible people to live with", homes: recommendedHomes.filter((home) => home.intent === "roommate") },
+    { key: "rental", title: "Entire homes for rent", subtitle: "Enjoy a place of your own", homes: recommendedHomes.filter((home) => home.intent === "rental") },
+  ].filter((section) => section.homes.length > 0);
 
   // Determine greeting based on time of day
   const getGreeting = () => {
@@ -53,7 +81,7 @@ export function Home({
       <div className="bg-white px-6 pt-8 pb-4">
         <div className="flex items-start justify-between">
           {/* Location */}
-          <div className="flex-1">
+          <button type="button" onClick={onBrowseHomes} className="flex-1 text-left">
             <div className="flex items-center gap-[5px] mb-[4px]">
               <p className="font-['Inter:Medium',sans-serif] font-medium text-[12px] leading-[14px] text-[#9da4ae]">
                 Location
@@ -66,7 +94,7 @@ export function Home({
                 {currentLocation}
               </p>
             </div>
-          </div>
+          </button>
 
           {/* Actions */}
           <div className="flex items-center gap-[8px]">
@@ -94,10 +122,10 @@ export function Home({
         {/* Greeting */}
         <div className="mt-4">
           <p className="font-['Inter:Semi_Bold',sans-serif] font-semibold text-[20px] leading-[24px] text-[#1f2a37] mb-[2px]">
-            {getGreeting()}, {userName}
+            {guestMode ? "Find your next home or roommate" : `${getGreeting()}, ${userName}`}
           </p>
           <p className="font-['Inter:Regular',sans-serif] font-normal text-[13px] leading-[18px] text-[#6b7280]">
-            Based on your lifestyle preferences
+            {guestMode ? "Explore homes and connect with compatible roommates." : "Based on your lifestyle preferences"}
           </p>
         </div>
       </div>
@@ -109,12 +137,16 @@ export function Home({
             <circle cx="9" cy="9" r="7.5" stroke="#fe456a" strokeWidth="1.5" />
             <path d="M14.5 14.5L18.5 18.5" stroke="#fe456a" strokeLinecap="round" strokeWidth="1.5" />
           </svg>
-          <input
-            type="text"
+            <input
+              type="text"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              onFocus={() => onBrowseHomes?.()}
+            onKeyDown={(event) => { if (event.key === "Enter") onBrowseHomes?.(); }}
             placeholder="Search Property"
             className="flex-1 font-['Inter:Regular',sans-serif] font-normal text-[14px] leading-[18px] text-[#9da4ae] outline-none bg-transparent"
           />
-          <svg className="w-[20px] h-[20px] flex-shrink-0" fill="none" viewBox="0 0 20 20">
+          <button type="button" onClick={onBrowseHomes} aria-label="Open property filters"><svg className="w-[20px] h-[20px] flex-shrink-0" fill="none" viewBox="0 0 20 20">
             <path
               d="M7.5 13L2 13M10.5 3.5L17 3.5"
               stroke="#fe456a"
@@ -123,12 +155,12 @@ export function Home({
             />
             <circle cx="13.5" cy="13" r="2.5" stroke="#fe456a" strokeWidth="1.5" />
             <circle cx="6.5" cy="3.5" r="2.5" stroke="#fe456a" strokeWidth="1.5" />
-          </svg>
+          </svg></button>
         </div>
       </div>
 
       {/* Complete Preferences Card */}
-      <div className="px-6 py-3">
+      {preferencesComplete === false && <div className="px-6 py-3">
         <button
           onClick={onCompletePreferences}
           className="w-full bg-[#fffaeb] border-2 border-[rgba(253,176,34,0.2)] rounded-[12px] p-[18px] flex items-center gap-[12px] hover:shadow-md transition-all"
@@ -154,15 +186,15 @@ export function Home({
           </div>
           <ArrowRight className="flex-none w-[20px] h-[20px] text-[#1f2a37]" />
         </button>
-      </div>
+      </div>}
 
       {/* Recommended for you */}
-      <div className="px-6 py-4">
+      {!guestMode && <div className="px-6 py-4">
         <div className="flex items-center justify-between mb-[4px]">
           <h2 className="font-['Inter:Semi_Bold',sans-serif] font-semibold text-[16px] leading-[24px] text-[#1f2a37]">
             Recommended for you
           </h2>
-          <button className="font-['Inter:Medium',sans-serif] font-medium text-[12px] leading-[14px] text-[#fe456a]">
+          <button onClick={onStartMatching} className="font-['Inter:Medium',sans-serif] font-medium text-[12px] leading-[14px] text-[#fe456a]">
             See all
           </button>
         </div>
@@ -211,7 +243,7 @@ export function Home({
             </button>
           ))}
         </div>
-      </div>
+      </div>}
 
       {/* Top Locations - keeping existing design but styled to match */}
       <div className="px-6 py-4 bg-white border-y border-[#f3f4f6]">
@@ -219,15 +251,16 @@ export function Home({
           <h2 className="font-['Inter:Semi_Bold',sans-serif] font-semibold text-[16px] leading-[24px] text-[#1f2a37]">
             Top Locations
           </h2>
-          <button className="font-['Inter:Medium',sans-serif] font-medium text-[12px] leading-[14px] text-[#fe456a]">
+          <button onClick={onBrowseHomes} className="font-['Inter:Medium',sans-serif] font-medium text-[12px] leading-[14px] text-[#fe456a]">
             See all
           </button>
         </div>
 
         <div className="flex gap-[12px] overflow-x-auto pb-[8px]">
-          {["Kibagabaga", "Kicukiro", "Gikondo", "Nyarutarama"].map((location, index) => (
+          {topLocations.map((location, index) => (
             <button
               key={location}
+              onClick={onBrowseHomes}
               className={`flex items-center gap-[8px] px-[8px] py-[4px] rounded-[10px] flex-shrink-0 ${
                 index === 1
                   ? "bg-[#fe456a]"
@@ -247,24 +280,34 @@ export function Home({
         </div>
       </div>
 
-      {/* Homes you might like */}
-      <div className="px-6 py-4">
-        <p className="font-['Inter:Medium',sans-serif] font-medium text-[12px] leading-[16px] text-[#9da4ae] mb-[16px]">
-          Homes you might like
-        </p>
-
-        <div className="flex gap-[12px] overflow-x-auto pb-[8px] -mx-6 px-6">
-          {recommendedHomes.map((home) => (
+      {/* Homes grouped by listing type */}
+      <div className="py-4 space-y-7">
+        {popularHomes.length > 0 && <section>
+          <div className="px-6 mb-3">
+            <h2 className="font-['Inter:Semi_Bold',sans-serif] font-semibold text-[16px] leading-[22px] text-[#1f2a37]">Popular listings</h2>
+            <p className="mt-1 text-[12px] leading-[16px] text-[#9da4ae]">Homes people are viewing the most</p>
+          </div>
+          <div className="flex gap-[12px] overflow-x-auto pb-[8px] px-6">
+            {popularHomes.map((home) => <button key={`popular-${home.id}`} onClick={() => onViewListing ? onViewListing(home.id) : onBrowseHomes?.()} className="flex-none w-[220px] bg-white border border-[#eef0f2] rounded-[14px] overflow-hidden text-left hover:shadow-md transition-all"><img src={home.image} alt={home.title} className="w-full h-[140px] object-cover"/><div className="p-3"><p className="text-[9px] text-[#9da4ae] mb-1">{home.listingType}</p><p className="font-semibold text-[13px] text-[#1f2a37] truncate">{home.title}</p><p className="font-bold text-[14px] text-[#fe456a] mt-1">{home.price}<span className="font-normal text-[10px] text-[#9da4ae]">/{home.rentPeriod}</span></p><p className="text-[10px] text-[#9da4ae] mt-1">{home.location}</p></div></button>)}
+          </div>
+        </section>}
+        {listingSections.map((section) => <section key={section.key}>
+          <div className="px-6 mb-3">
+            <h2 className="font-['Inter:Semi_Bold',sans-serif] font-semibold text-[16px] leading-[22px] text-[#1f2a37]">{section.title}</h2>
+            <p className="mt-1 font-['Inter:Regular',sans-serif] text-[12px] leading-[16px] text-[#9da4ae]">{section.subtitle}</p>
+          </div>
+          <div className="flex gap-[12px] overflow-x-auto pb-[8px] px-6">
+          {section.homes.map((home) => (
             <button
               key={home.id}
-              onClick={onBrowseHomes}
-              className="flex-none w-[160px] bg-[#fafafa] rounded-[12px] overflow-hidden hover:bg-[#f3f4f6] transition-colors"
+              onClick={() => onViewListing ? onViewListing(home.id) : onBrowseHomes?.()}
+              className="flex-none w-[220px] bg-white border border-[#eef0f2] rounded-[14px] overflow-hidden text-left hover:shadow-md transition-all"
             >
               <div className="relative">
                 <img
                   src={home.image}
                   alt={home.title}
-                  className="w-full h-[100px] object-cover"
+                  className="w-full h-[140px] object-cover"
                 />
               </div>
               <div className="p-[12px]">
@@ -278,7 +321,7 @@ export function Home({
                 <p className="font-['Inter:Bold',sans-serif] font-bold text-[14px] leading-[18px] text-[#fe456a] mb-[4px]">
                   {home.price}
                   <span className="font-['Inter:Regular',sans-serif] font-normal text-[10px] leading-[14px] text-[#9da4ae]">
-                    /month
+                    /{home.rentPeriod}
                   </span>
                 </p>
                 <p className="font-['Inter:Regular',sans-serif] font-normal text-[10px] leading-[14px] text-[#9da4ae] mb-[4px]">
@@ -293,7 +336,9 @@ export function Home({
               </div>
             </button>
           ))}
-        </div>
+          </div>
+        </section>)}
+        {listingSections.length === 0 && <p className="px-6 py-8 text-center text-sm text-[#9da4ae]">No published homes are available yet.</p>}
       </div>
 
       {/* CTA Cards */}

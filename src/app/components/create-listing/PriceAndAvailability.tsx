@@ -10,6 +10,7 @@ export function PriceAndAvailability({ onNext }: PriceAndAvailabilityProps) {
   const { listingData, updatePriceAndAvailability } = useCreateListing();
   const [localData, setLocalData] = useState({
     rent: listingData.rent,
+    rentPeriod: listingData.rentPeriod,
     deposit: listingData.deposit,
     moveInDate: listingData.moveInDate,
     minimumStay: listingData.minimumStay,
@@ -47,7 +48,7 @@ export function PriceAndAvailability({ onNext }: PriceAndAvailabilityProps) {
         {/* Rent */}
         <div>
           <label className="block font-['Inter:Medium',sans-serif] font-medium text-[14px] leading-[20px] text-[#1f2a37] mb-[8px]">
-            Monthly Rent
+            Rent amount
           </label>
           <div className="relative">
             <div className="absolute left-[16px] top-1/2 -translate-y-1/2 text-[#6b7280]">
@@ -60,6 +61,9 @@ export function PriceAndAvailability({ onNext }: PriceAndAvailabilityProps) {
               placeholder="1,200"
               className="w-full h-[48px] pl-[44px] pr-[16px] bg-white border-[1.5px] border-[#d2d6db] rounded-[8px] font-['Inter:Regular',sans-serif] font-normal text-[16px] text-[#1f2a37] placeholder:text-[#9da4ae] focus:outline-none focus:border-[#fe456a] transition-colors"
             />
+          </div>
+          <div className="grid grid-cols-3 gap-2 mt-3">
+            {(["night", "week", "month"] as const).map((period) => <button key={period} type="button" onClick={() => handleChange("rentPeriod", period)} className={`h-11 rounded-lg border text-sm font-medium capitalize ${localData.rentPeriod === period ? "border-[#fe456a] bg-[#fef0f3] text-[#fe456a]" : "border-[#d2d6db] bg-white text-[#6b7280]"}`}>Per {period}</button>)}
           </div>
         </div>
 

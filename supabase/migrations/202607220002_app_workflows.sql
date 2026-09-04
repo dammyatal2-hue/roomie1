@@ -18,6 +18,8 @@ end $$;
 grant execute on function public.handle_booking_request(uuid,public.request_status) to authenticated;
 
 create or replace function public.notify_new_request() returns trigger security definer set search_path=public language plpgsql as $$ begin insert into public.notifications(user_id,actor_id,type,entity_id,title,body) values(new.owner_id,new.requester_id,'new_request',new.id,'New booking request','Someone requested to join your listing'); return new; end $$;
+drop trigger if exists booking_request_notification on public.booking_requests;
 create trigger booking_request_notification after insert on public.booking_requests for each row execute function public.notify_new_request();
 create or replace function public.notify_new_message() returns trigger security definer set search_path=public language plpgsql as $$ begin insert into public.notifications(user_id,actor_id,type,entity_id,title,body) select m.user_id,new.sender_id,'new_message',new.conversation_id,'New message',left(new.body,120) from public.conversation_members m where m.conversation_id=new.conversation_id and m.user_id<>new.sender_id; return new; end $$;
+drop trigger if exists message_notification on public.messages;
 create trigger message_notification after insert on public.messages for each row execute function public.notify_new_message();

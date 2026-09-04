@@ -8,7 +8,7 @@ export function SuccessReset({ onContinue }: SuccessResetProps) {
   return (
     <div className="bg-[#fcfcfd] relative size-full flex flex-col">
       {/* Status Bar */}
-      <div className="h-[44px] bg-transparent" />
+      <div className="h-[max(env(safe-area-inset-top),8px)] bg-transparent" />
 
       {/* Content */}
       <div className="flex-1 flex flex-col items-center justify-center px-[24px]">

@@ -1,15 +1,37 @@
-import { ArrowLeft, Share, Heart, Home, Bed, Bath, Sofa, Calendar, MapPin, User, Phone, MessageCircle, Hospital, ShoppingCart, ShoppingBag, Fuel, Bus, GraduationCap, Dumbbell, Plus, Cross, Coffee } from "lucide-react";
-import { useState } from "react";
+import { ArrowLeft, Share, Heart, Home, Bed, Bath, Sofa, Calendar, MapPin, User, Phone, MessageCircle, Hospital, ShoppingCart, ShoppingBag, Fuel, Bus, GraduationCap, Dumbbell, Plus, Cross, Coffee, X } from "lucide-react";
+import { useEffect, useState } from "react";
 import type { ListingData } from "./CreateListingContext";
+import { supabase } from "../../lib/supabase";
+import { useAuth } from "../auth/AuthProvider";
 
 interface RentalDetailsProps {
   onBack: () => void;
   listing?: ListingData;
   onRentNow?: () => void;
+  record?: any;
 }
 
-export function RentalDetails({ onBack, listing, onRentNow }: RentalDetailsProps) {
+export function RentalDetails({ onBack, listing, onRentNow, record }: RentalDetailsProps) {
+  const { user } = useAuth();
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const [isImageOpen, setIsImageOpen] = useState(false);
+  const [isFavorite, setIsFavorite] = useState(false);
+
+  useEffect(() => {
+    if (!user || !record?.id) return;
+    supabase.from("listing_favorites").select("listing_id").eq("user_id", user.id).eq("listing_id", record.id).maybeSingle()
+      .then(({ data }) => setIsFavorite(Boolean(data)));
+  }, [record?.id, user]);
+
+  const toggleFavorite = async () => {
+    if (!user || !record?.id) return;
+    const next = !isFavorite;
+    setIsFavorite(next);
+    const { error } = next
+      ? await supabase.from("listing_favorites").upsert({ user_id: user.id, listing_id: record.id })
+      : await supabase.from("listing_favorites").delete().eq("user_id", user.id).eq("listing_id", record.id);
+    if (error) setIsFavorite(!next);
+  };
 
   // Demo data for entire home rental
   const demoListing: ListingData = {
@@ -74,11 +96,17 @@ export function RentalDetails({ onBack, listing, onRentNow }: RentalDetailsProps
     "https://images.unsplash.com/photo-1597497522150-2f50bffea452?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxhcGFydG1lbnQlMjBraXRjaGVuJTIwbW9kZXJufGVufDF8fHx8MTc2OTM5MTM0NXww&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral",
     "https://images.unsplash.com/photo-1651752523215-9bf678c29355?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxhcGFydG1lbnQlMjBidWlsZGluZyUyMGV4dGVyaW9yfGVufDF8fHx8MTc2OTQyNTI3Mnww&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral",
   ];
+  const storedImages = (record?.listing_photos ?? []).map((photo: any) => supabase.storage.from("listing-photos").getPublicUrl(photo.storage_path).data.publicUrl);
+  const noPhotoImage = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='800' height='600'%3E%3Crect width='100%25' height='100%25' fill='%23f3f4f6'/%3E%3Ctext x='50%25' y='50%25' text-anchor='middle' fill='%239da4ae' font-family='Arial' font-size='28'%3ENo photo uploaded%3C/text%3E%3C/svg%3E";
+  const displayImages = storedImages.length ? storedImages : [noPhotoImage];
+  const mapLatitude = record?.latitude == null ? null : record.hide_address ? Math.round(record.latitude * 100) / 100 : record.latitude;
+  const mapLongitude = record?.longitude == null ? null : record.hide_address ? Math.round(record.longitude * 100) / 100 : record.longitude;
 
   return (
     <div className="size-full flex flex-col bg-white overflow-auto">
+      {isImageOpen && <div onClick={() => setIsImageOpen(false)} className="fixed inset-0 z-50 bg-black/95 flex items-center justify-center p-4"><button onClick={() => setIsImageOpen(false)} aria-label="Close image" className="absolute top-[max(env(safe-area-inset-top),16px)] right-4 size-10 rounded-full bg-white/15 flex items-center justify-center"><X className="size-6 text-white"/></button><img onClick={(event) => event.stopPropagation()} src={displayImages[currentImageIndex]} alt="Rental full screen" className="max-w-full max-h-full object-contain"/></div>}
       {/* Status Bar Spacer */}
-      <div className="h-[44px]" />
+      <div className="h-[max(env(safe-area-inset-top),8px)]" />
 
       {/* Header */}
       <div className="sticky top-0 z-10 bg-white/95 backdrop-blur-sm border-b border-[#e5e7eb]">
@@ -96,8 +124,8 @@ export function RentalDetails({ onBack, listing, onRentNow }: RentalDetailsProps
             <button className="p-[4px] hover:bg-[#f3f4f6] rounded-[8px] transition-colors">
               <Share className="w-[20px] h-[20px] text-[#1f2a37]" />
             </button>
-            <button className="p-[4px] hover:bg-[#f3f4f6] rounded-[8px] transition-colors">
-              <Heart className="w-[20px] h-[20px] text-[#1f2a37]" />
+            <button onClick={toggleFavorite} aria-label={isFavorite ? "Remove from favorites" : "Add to favorites"} className="p-[4px] hover:bg-[#f3f4f6] rounded-[8px] transition-colors">
+              <Heart className={`w-[20px] h-[20px] ${isFavorite ? "fill-[#fe456a] text-[#fe456a]" : "text-[#1f2a37]"}`} />
             </button>
           </div>
         </div>
@@ -108,9 +136,9 @@ export function RentalDetails({ onBack, listing, onRentNow }: RentalDetailsProps
         {/* Image Gallery */}
         <div className="px-[24px] pt-[16px]">
           {/* Main Image */}
-          <div className="relative w-full aspect-[4/3] rounded-[16px] overflow-hidden bg-[#f3f4f6] mb-[12px]">
+          <div onClick={() => setIsImageOpen(true)} className="relative w-full aspect-[4/3] rounded-[16px] overflow-hidden bg-[#f3f4f6] mb-[12px] cursor-zoom-in">
             <img
-              src={placeholderImages[currentImageIndex]}
+              src={displayImages[currentImageIndex]}
               alt="Property"
               className="w-full h-full object-cover"
             />
@@ -118,10 +146,10 @@ export function RentalDetails({ onBack, listing, onRentNow }: RentalDetailsProps
             <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/20" />
             {/* Image indicators */}
             <div className="absolute bottom-[16px] left-1/2 -translate-x-1/2 flex gap-[8px]">
-              {placeholderImages.map((_, index) => (
+              {displayImages.map((_, index) => (
                 <button
                   key={index}
-                  onClick={() => setCurrentImageIndex(index)}
+                  onClick={(event) => { event.stopPropagation(); setCurrentImageIndex(index); }}
                   className={`w-[8px] h-[8px] rounded-full transition-all ${
                     index === currentImageIndex ? "bg-[#fe456a] w-[24px]" : "bg-white/60"
                   }`}
@@ -132,7 +160,7 @@ export function RentalDetails({ onBack, listing, onRentNow }: RentalDetailsProps
 
           {/* Thumbnail Images */}
           <div className="flex gap-[8px] overflow-x-auto pb-[2px]">
-            {placeholderImages.map((img, index) => (
+            {displayImages.map((img, index) => (
               <button
                 key={index}
                 onClick={() => setCurrentImageIndex(index)}
@@ -150,14 +178,14 @@ export function RentalDetails({ onBack, listing, onRentNow }: RentalDetailsProps
         <div className="px-[24px] pt-[24px]">
           <div className="flex items-start justify-between mb-[4px]">
             <h1 className="font-['Inter:Semi_Bold',sans-serif] font-semibold text-[20px] leading-[26px] text-[#1f2a37] flex-1">
-              Modern City Apartment
+              {record?.title || "Rental listing"}
             </h1>
             <div className="text-right">
               <span className="font-['Inter:Bold',sans-serif] font-bold text-[14px] leading-[18px] text-[#fe456a]">
                 ${activeListingData.rent}
               </span>
               <span className="font-['Inter:Regular',sans-serif] font-normal text-[12px] leading-[14px] text-[#9da4ae]">
-                /month
+                /{activeListingData.rentPeriod || "month"}
               </span>
             </div>
           </div>
@@ -166,9 +194,10 @@ export function RentalDetails({ onBack, listing, onRentNow }: RentalDetailsProps
           <div className="flex items-center gap-[4px] mb-[12px]">
             <MapPin className="w-[16px] h-[16px] text-[#9da4ae]" />
             <p className="font-['Inter:Regular',sans-serif] font-normal text-[14px] leading-[18px] text-[#9da4ae]">
-              City Center, Kigali
+              {[record?.area, record?.city].filter(Boolean).join(", ")}
             </p>
           </div>
+          {mapLatitude != null && mapLongitude != null && <div className="h-44 rounded-xl overflow-hidden border mb-4"><iframe title="Approximate rental location" className="size-full border-0" src={`https://www.openstreetmap.org/export/embed.html?bbox=${mapLongitude-0.015}%2C${mapLatitude-0.01}%2C${mapLongitude+0.015}%2C${mapLatitude+0.01}&layer=mapnik&marker=${mapLatitude}%2C${mapLongitude}`}/></div>}
 
           {/* Living Setup Badge */}
           <div className="inline-flex items-center gap-[6px] px-[12px] py-[6px] bg-[#f0f9ff] rounded-[8px]">

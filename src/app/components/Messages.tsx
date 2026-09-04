@@ -1,12 +1,7 @@
-import { ArrowLeft, Search, Plus, MoreHorizontal, Trash2 } from "lucide-react";
+import { ArrowLeft, Search, MoreHorizontal, Trash2 } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 import svgPaths from "../../imports/svg-zmljldicqn";
 import svgPathsDelete from "../../imports/svg-t7iwy2crtn";
-import imgEllipse25 from "figma:asset/92ecf1488fb54eebf7de49d5cd4334f43351cfe6.png";
-import imgEllipse26 from "figma:asset/073af628bd26c11211b206c7c4e42d6fa0eb5b48.png";
-import imgEllipse27 from "figma:asset/b45f4893ba44958bacd147f69ea2f04e67e721d9.png";
-import imgEllipse28 from "figma:asset/3f8d83a877b395f8f9f90730885b577261b1d17c.png";
-import imgEllipse29 from "figma:asset/b70f984f9e74a2d6eddf2ada239224c188b496a8.png";
 import imgEllipse17 from "figma:asset/e27dfa2b9cdb625ff364c104c1612553df96ed6a.png";
 import imgEllipse18 from "figma:asset/e27dfa2b9cdb625ff364c104c1612553df96ed6a.png";
 import imgEllipse19 from "figma:asset/e27dfa2b9cdb625ff364c104c1612553df96ed6a.png";
@@ -14,6 +9,8 @@ import imgEllipse20 from "figma:asset/e27dfa2b9cdb625ff364c104c1612553df96ed6a.p
 import imgEllipse21 from "figma:asset/e27dfa2b9cdb625ff364c104c1612553df96ed6a.png";
 import imgEllipse22 from "figma:asset/e27dfa2b9cdb625ff364c104c1612553df96ed6a.png";
 import type { RequestStatus } from "./RequestStatusBadge";
+import { supabase } from "../../lib/supabase";
+import { useAuth } from "../auth/AuthProvider";
 
 interface Message {
   id: string;
@@ -29,10 +26,12 @@ interface MessagesProps {
 }
 
 export function Messages({ onBack, onOpenChat }: MessagesProps) {
+  const { user } = useAuth();
   const [swipedMessageId, setSwipedMessageId] = useState<string | null>(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [messageToDelete, setMessageToDelete] = useState<string | null>(null);
-  const [messages, setMessages] = useState<Message[]>([
+  const [messages, setMessages] = useState<Message[]>([]);
+  /*
     {
       id: "1",
       name: "Anggela",
@@ -76,15 +75,24 @@ export function Messages({ onBack, onOpenChat }: MessagesProps) {
       avatar: imgEllipse22,
     },
   ]);
+  */
 
-  // Demo active chat avatars
-  const activeChats = [
-    imgEllipse25,
-    imgEllipse26,
-    imgEllipse27,
-    imgEllipse28,
-    imgEllipse29,
-  ];
+  useEffect(() => {
+    if (!user) return;
+    const load = async () => {
+      const { data: memberships } = await supabase.from("conversation_members").select("conversation_id").eq("user_id", user.id);
+      const ids = (memberships ?? []).map((row: any) => row.conversation_id);
+      if (!ids.length) return setMessages([]);
+      const [{ data: members }, { data: rows }] = await Promise.all([
+        supabase.from("conversation_members").select("conversation_id,profiles(username,full_name,avatar_url)").in("conversation_id", ids).neq("user_id", user.id),
+        supabase.from("messages").select("conversation_id,body,created_at").in("conversation_id", ids).order("created_at", { ascending: false }),
+      ]);
+      setMessages(ids.map((id: string) => { const member: any = members?.find((row: any) => row.conversation_id === id); const last: any = rows?.find((row: any) => row.conversation_id === id); const p=member?.profiles; return { id, name: p?.full_name || p?.username || "Roomie member", message: last?.body || "Start the conversation", timestamp: last ? new Date(last.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "", avatar: p?.avatar_url || `https://api.dicebear.com/9.x/initials/svg?seed=${encodeURIComponent(p?.username || "Roomie")}` }; }));
+    };
+    load();
+    const channel = supabase.channel(`inbox:${user.id}`).on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, load).subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [user]);
 
   const handleDeleteClick = (messageId: string) => {
     setMessageToDelete(messageId);
@@ -108,10 +116,10 @@ export function Messages({ onBack, onOpenChat }: MessagesProps) {
   return (
     <div className="bg-[#fcfcfd] relative size-full flex flex-col">
       {/* Status Bar */}
-      <div className="h-[44px] bg-transparent" />
+      <div className="h-[max(env(safe-area-inset-top),8px)] bg-white shrink-0" />
 
       {/* Header */}
-      <div className="px-[24px] pt-[16px] pb-[24px] flex items-center justify-between">
+      <div className="bg-white border-b border-[#e5e7eb] px-[20px] py-[14px] flex items-center justify-between shrink-0">
         <button 
           onClick={onBack}
           className="size-[24px] flex items-center justify-center"
@@ -119,39 +127,15 @@ export function Messages({ onBack, onOpenChat }: MessagesProps) {
           <ArrowLeft className="w-[20px] h-[20px] text-[#1f2a37]" strokeWidth={1.5} />
         </button>
         <h1 className="font-['Inter:Semi_Bold',sans-serif] font-semibold text-[16px] leading-[24px] text-[#1f2a37]">
-          Message
+          Messages
         </h1>
         <button className="size-[24px] flex items-center justify-center">
           <Search className="w-[20px] h-[20px] text-[#1f2a37]" strokeWidth={1.5} />
         </button>
       </div>
 
-      {/* Active Chat Section */}
-      <div className="px-[24px] pb-[24px]">
-        <div className="flex gap-[12px] items-center overflow-x-auto">
-          {/* Add New Chat Button */}
-          <button className="bg-[#fe456a] size-[52px] rounded-full flex items-center justify-center flex-shrink-0">
-            <Plus className="w-[24px] h-[24px] text-white" strokeWidth={1.5} />
-          </button>
-
-          {/* Divider */}
-          <div className="h-[44px] w-[1.5px] bg-[#9da4ae] flex-shrink-0" />
-
-          {/* Active Chat Avatars */}
-          {activeChats.map((avatar, index) => (
-            <button key={index} className="flex-shrink-0">
-              <img 
-                src={avatar} 
-                alt="" 
-                className="size-[52px] rounded-full object-cover"
-              />
-            </button>
-          ))}
-        </div>
-      </div>
-
       {/* All Message Title */}
-      <div className="px-[24px] pb-[16px]">
+      <div className="px-[24px] pt-[24px] pb-[16px]">
         <h2 className="font-['Inter:Semi_Bold',sans-serif] font-semibold text-[16px] leading-[24px] text-[#1f2a37]">
           All Message
         </h2>

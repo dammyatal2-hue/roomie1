@@ -1,7 +1,6 @@
-import { useEffect, useState } from "react";
-import { ArrowLeft, Camera } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { ArrowLeft, Camera, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
-import imgProfilePhoto from "figma:asset/77938430027354896c22b7e6126a262594b019e5.png";
 import { useAuth } from "../auth/AuthProvider";
 import { supabase } from "../../lib/supabase";
 
@@ -63,19 +62,134 @@ export function EditProfile({ onBack }: EditProfileProps) {
   const { user } = useAuth();
   const [hasChanges, setHasChanges] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+  const photoInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
+  const [galleryPhotos, setGalleryPhotos] = useState<Array<{ id: string; storage_path: string; url: string }>>([]);
+  const [isUploadingGallery, setIsUploadingGallery] = useState(false);
+  const [roommateDiscoverable, setRoommateDiscoverable] = useState(false);
+  const [lookingForCountry, setLookingForCountry] = useState("");
+  const [lookingForCity, setLookingForCity] = useState("");
+  const [savingDiscovery, setSavingDiscovery] = useState(false);
+  const [detectingDiscoveryLocation, setDetectingDiscoveryLocation] = useState(false);
+  const [discoveryLocationError, setDiscoveryLocationError] = useState("");
+
+  const loadGallery = async () => {
+    if (!user) return;
+    const { data, error } = await supabase.from("profile_photos").select("id,storage_path,position").eq("user_id", user.id).order("position");
+    if (error) return;
+    setGalleryPhotos((data ?? []).map((photo) => ({ ...photo, url: supabase.storage.from("avatars").getPublicUrl(photo.storage_path).data.publicUrl })));
+  };
 
   // Form state
   const [formData, setFormData] = useState({
-    fullName: "", username: "", email: user?.email ?? "", dateOfBirth: "", nationality: "", phoneNumber: "", country: "", city: "", occupation: "", bio: "",
+    fullName: "", username: "", email: user?.email ?? "", dateOfBirth: "", gender: "", nationality: "", phoneNumber: "", country: "", city: "", occupation: "", bio: "",
   });
 
   useEffect(() => {
     if (!user) return;
     supabase.from("profiles").select("*").eq("id", user.id).single().then(({ data, error }) => {
       if (error) return toast.error(error.message);
-      setFormData({ fullName: data.full_name ?? "", username: data.username ?? "", email: user.email ?? "", dateOfBirth: data.date_of_birth ?? "", nationality: data.nationality ?? "", phoneNumber: data.phone_number ?? "", country: data.country ?? "", city: data.city ?? "", occupation: data.occupation ?? "", bio: data.bio ?? "" });
+      setAvatarUrl(data.avatar_url ?? null);
+      setRoommateDiscoverable(Boolean(data.roommate_discoverable));
+      setLookingForCountry(data.looking_for_country ?? "");
+      setLookingForCity(data.looking_for_city ?? "");
+      setFormData({ fullName: data.full_name ?? "", username: data.username ?? "", email: user.email ?? "", dateOfBirth: data.date_of_birth ?? "", gender: data.gender ?? "", nationality: data.nationality ?? "", phoneNumber: data.phone_number ?? "", country: data.country ?? "", city: data.city ?? "", occupation: data.occupation ?? "", bio: data.bio ?? "" });
     });
+    void loadGallery();
   }, [user]);
+
+  const addGalleryPhotos = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []);
+    event.target.value = "";
+    if (!user || files.length === 0) return;
+    const available = 5 - galleryPhotos.length;
+    if (files.length > available) return toast.error(`You can add ${available} more ${available === 1 ? "photo" : "photos"}.`);
+    if (files.some((file) => !file.type.startsWith("image/") || file.size > 5 * 1024 * 1024)) return toast.error("Each photo must be an image smaller than 5 MB.");
+    setIsUploadingGallery(true);
+    for (let index = 0; index < files.length; index++) {
+      const file = files[index];
+      const extension = file.name.split(".").pop()?.toLowerCase() || "jpg";
+      const path = `${user.id}/gallery/${crypto.randomUUID()}.${extension}`;
+      const { error: uploadError } = await supabase.storage.from("avatars").upload(path, file, { contentType: file.type });
+      if (uploadError) { toast.error(uploadError.message); continue; }
+      const { error: rowError } = await supabase.from("profile_photos").insert({ user_id: user.id, storage_path: path, position: galleryPhotos.length + index });
+      if (rowError) { await supabase.storage.from("avatars").remove([path]); toast.error(rowError.message); }
+    }
+    setIsUploadingGallery(false);
+    await loadGallery();
+  };
+
+  const deleteGalleryPhoto = async (photo: { id: string; storage_path: string }) => {
+    const { error } = await supabase.from("profile_photos").delete().eq("id", photo.id);
+    if (error) return toast.error(error.message);
+    await supabase.storage.from("avatars").remove([photo.storage_path]);
+    await loadGallery();
+  };
+
+  const saveDiscoverySettings = async () => {
+    if (!user) return toast.error("Please sign in again.");
+    if (roommateDiscoverable && (!lookingForCountry.trim() || !lookingForCity.trim())) return toast.error("Choose the country and city where you are looking.");
+    setSavingDiscovery(true);
+    const { error } = await supabase.from("profiles").update({ roommate_discoverable: roommateDiscoverable, looking_for_country: lookingForCountry.trim() || null, looking_for_city: lookingForCity.trim() || null }).eq("id", user.id);
+    setSavingDiscovery(false);
+    if (error) return toast.error(error.message);
+    toast.success(roommateDiscoverable ? "Your profile is now visible in roommate discovery." : "Your profile is now hidden from roommate discovery.");
+  };
+
+  const detectDiscoveryLocation = async () => {
+    setDiscoveryLocationError("");
+    if (!navigator.geolocation) { setDiscoveryLocationError("Location is not supported on this device."); return false; }
+    setDetectingDiscoveryLocation(true);
+    try {
+      const position = await new Promise<GeolocationPosition>((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 15000 }));
+      const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${position.coords.latitude}&lon=${position.coords.longitude}&addressdetails=1`);
+      if (!response.ok) throw new Error("Unable to identify your location.");
+      const result = await response.json();
+      const address = result.address ?? {};
+      const country = address.country ?? "";
+      const city = address.city || address.town || address.village || address.county || "";
+      if (!country || !city) throw new Error("We could not identify your country and city.");
+      setLookingForCountry(country);
+      setLookingForCity(city);
+      setHasChanges(true);
+      return true;
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : typeof reason === "object" && reason && "message" in reason ? String(reason.message) : "Unable to access your location.";
+      setDiscoveryLocationError(message || "Allow location access and try again.");
+      return false;
+    } finally {
+      setDetectingDiscoveryLocation(false);
+    }
+  };
+
+  const toggleRoommateDiscovery = async () => {
+    if (roommateDiscoverable) { setRoommateDiscoverable(false); setHasChanges(true); return; }
+    const located = lookingForCountry && lookingForCity ? true : await detectDiscoveryLocation();
+    if (located) { setRoommateDiscoverable(true); setHasChanges(true); }
+  };
+
+  const handlePhotoChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !user) return;
+    if (!file.type.startsWith("image/")) return toast.error("Please choose an image file");
+    if (file.size > 5 * 1024 * 1024) return toast.error("Profile photo must be smaller than 5 MB");
+
+    setIsUploadingPhoto(true);
+    const extension = file.name.split(".").pop()?.toLowerCase() || "jpg";
+    const path = `${user.id}/profile.${extension}`;
+    const { error: uploadError } = await supabase.storage.from("avatars").upload(path, file, { upsert: true, contentType: file.type });
+    if (uploadError) { setIsUploadingPhoto(false); return toast.error(uploadError.message); }
+    const publicUrl = supabase.storage.from("avatars").getPublicUrl(path).data.publicUrl;
+    const versionedUrl = `${publicUrl}?v=${Date.now()}`;
+    const { error: updateError } = await supabase.from("profiles").update({ avatar_url: versionedUrl }).eq("id", user.id);
+    setIsUploadingPhoto(false);
+    if (updateError) return toast.error(updateError.message);
+    setAvatarUrl(versionedUrl);
+    toast.success("Profile photo updated");
+    event.target.value = "";
+  };
 
   const handleChange = (field: keyof typeof formData, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
@@ -109,7 +223,8 @@ export function EditProfile({ onBack }: EditProfileProps) {
     setIsLoading(true);
 
     if (!user) return;
-    const { error } = await supabase.from("profiles").update({ full_name: formData.fullName, username: formData.username, date_of_birth: formData.dateOfBirth || null, nationality: formData.nationality || null, phone_number: formData.phoneNumber || null, country: formData.country || null, city: formData.city || null, occupation: formData.occupation || null, bio: formData.bio || null }).eq("id", user.id);
+    if (roommateDiscoverable && (!lookingForCountry || !lookingForCity)) { setIsLoading(false); return toast.error("Choose the country and city where you are looking for a roommate."); }
+    const { error } = await supabase.from("profiles").update({ full_name: formData.fullName, username: formData.username, date_of_birth: formData.dateOfBirth || null, gender: formData.gender || null, nationality: formData.nationality || null, phone_number: formData.phoneNumber || null, country: formData.country || null, city: formData.city || null, occupation: formData.occupation || null, bio: formData.bio || null, roommate_discoverable: roommateDiscoverable, looking_for_country: lookingForCountry || null, looking_for_city: lookingForCity || null }).eq("id", user.id);
     if (!error && formData.email !== user.email) await supabase.auth.updateUser({ email: formData.email });
     if (error) { setIsLoading(false); toast.error(error.message); return; }
 
@@ -133,7 +248,7 @@ export function EditProfile({ onBack }: EditProfileProps) {
   return (
     <div className="size-full flex flex-col bg-[#fcfcfd]">
       {/* Status Bar Spacer */}
-      <div className="h-[44px] bg-white" />
+      <div className="h-[max(env(safe-area-inset-top),8px)] bg-white" />
 
       {/* Header */}
       <div className="bg-white px-[16px] py-[12px] border-b border-[#e5e7eb] flex items-center justify-between">
@@ -166,22 +281,43 @@ export function EditProfile({ onBack }: EditProfileProps) {
           <div className="flex flex-col items-center">
             <div className="relative mb-[12px]">
               <img
-                src={imgProfilePhoto}
+                src={avatarUrl || `https://api.dicebear.com/9.x/initials/svg?seed=${encodeURIComponent(formData.fullName || formData.username || user?.email || "Roomie")}&backgroundColor=fe456a&fontFamily=Arial`}
                 alt="Profile"
                 className="w-[100px] h-[100px] rounded-full object-cover"
               />
-              <button className="absolute bottom-0 right-0 w-[32px] h-[32px] bg-[#fe456a] rounded-full flex items-center justify-center shadow-[0px_2px_8px_0px_rgba(254,69,106,0.3)] hover:bg-[#e63d5f] transition-colors">
+              <button type="button" disabled={isUploadingPhoto} onClick={() => photoInputRef.current?.click()} className="absolute bottom-0 right-0 w-[32px] h-[32px] bg-[#fe456a] rounded-full flex items-center justify-center shadow-[0px_2px_8px_0px_rgba(254,69,106,0.3)] hover:bg-[#e63d5f] transition-colors disabled:opacity-60">
                 <Camera className="w-[16px] h-[16px] text-white" strokeWidth={2.5} />
               </button>
+              <input ref={photoInputRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoChange} />
             </div>
-            <button className="font-['Inter:Medium',sans-serif] font-medium text-[14px] leading-[20px] text-[#fe456a] hover:opacity-70 transition-opacity">
-              Change photo
+            <button type="button" disabled={isUploadingPhoto} onClick={() => photoInputRef.current?.click()} className="font-['Inter:Medium',sans-serif] font-medium text-[14px] leading-[20px] text-[#fe456a] hover:opacity-70 transition-opacity disabled:opacity-60">
+              {isUploadingPhoto ? "Uploading..." : "Change photo"}
             </button>
           </div>
         </div>
 
+        <div className="bg-white px-6 pb-6 mb-2">
+          <div className="flex items-center justify-between mb-3"><div><h2 className="text-sm font-semibold text-[#1f2a37]">Profile gallery</h2><p className="text-xs text-[#9da4ae] mt-1">Add up to 5 photos for other members to see.</p></div><span className="text-xs text-[#6b7280]">{galleryPhotos.length}/5</span></div>
+          <div className="grid grid-cols-3 gap-2">
+            {galleryPhotos.map((photo) => <div key={photo.id} className="relative aspect-square rounded-xl overflow-hidden bg-[#f3f4f6]"><img src={photo.url} alt="Profile gallery" className="size-full object-cover"/><button type="button" onClick={() => void deleteGalleryPhoto(photo)} aria-label="Delete photo" className="absolute top-1.5 right-1.5 size-7 rounded-full bg-black/60 text-white grid place-items-center"><Trash2 className="size-3.5"/></button></div>)}
+            {galleryPhotos.length < 5 && <button type="button" disabled={isUploadingGallery} onClick={() => galleryInputRef.current?.click()} className="aspect-square rounded-xl border-2 border-dashed border-[#d2d6db] grid place-items-center text-[#fe456a] disabled:opacity-50"><div className="text-center"><Plus className="size-6 mx-auto"/><span className="text-[10px]">{isUploadingGallery ? "Uploading" : "Add photos"}</span></div></button>}
+          </div>
+          <input ref={galleryInputRef} type="file" accept="image/*" multiple className="hidden" onChange={addGalleryPhotos}/>
+        </div>
+
         {/* Form Sections */}
         <div className="space-y-[8px]">
+          <div className="bg-white px-6 py-6">
+            <div className="flex items-start justify-between gap-4">
+              <div><h2 className="text-sm font-semibold text-[#1f2a37]">Roommate discovery</h2><p className="text-xs leading-5 text-[#6b7280] mt-1">Allow your profile to appear to compatible members searching in the same area.</p></div>
+              <button type="button" disabled={detectingDiscoveryLocation} role="switch" aria-label="Show me in roommate discovery" aria-checked={roommateDiscoverable} onClick={toggleRoommateDiscovery} className={`relative shrink-0 w-[52px] h-8 rounded-full transition-colors focus:outline-none focus:ring-4 focus:ring-[#fe456a]/20 disabled:opacity-60 ${roommateDiscoverable ? "bg-[#fe456a]" : "bg-[#d2d6db]"}`}><span className={`absolute left-1 top-1 size-6 rounded-full bg-white shadow transition-transform ${roommateDiscoverable ? "translate-x-5" : "translate-x-0"}`}/></button>
+            </div>
+            <div className={`mt-3 inline-flex px-2.5 py-1 rounded-full text-[11px] font-semibold ${roommateDiscoverable ? "bg-green-50 text-green-700" : "bg-gray-100 text-gray-600"}`}>{roommateDiscoverable ? "Visible to compatible roommates" : "Hidden from roommate discovery"}</div>
+            {(roommateDiscoverable || detectingDiscoveryLocation) && <div className="mt-5 rounded-xl border border-[#e5e7eb] bg-[#f9fafb] p-3 flex items-center justify-between gap-3"><div><p className="text-xs text-[#6b7280]">Detected search location</p><p className="text-sm font-semibold text-[#1f2a37] mt-1">{detectingDiscoveryLocation ? "Detecting your location…" : [lookingForCity, lookingForCountry].filter(Boolean).join(", ")}</p></div><button type="button" disabled={detectingDiscoveryLocation} onClick={detectDiscoveryLocation} className="shrink-0 text-xs font-semibold text-[#fe456a] disabled:opacity-50">Detect again</button></div>}
+            {discoveryLocationError && <p role="alert" className="mt-3 text-xs text-red-600">{discoveryLocationError}</p>}
+            <p className="text-[11px] leading-4 text-[#9da4ae] mt-4">When off, your profile is hidden from Find Compatible Roommates. Existing conversations are not affected.</p>
+            <button type="button" disabled={savingDiscovery} onClick={saveDiscoverySettings} className="mt-4 w-full h-11 rounded-lg bg-[#fe456a] text-white text-sm font-semibold hover:bg-[#e63d5f] disabled:opacity-60">{savingDiscovery ? "Saving…" : "Save discovery settings"}</button>
+          </div>
           {/* Basic Info */}
           <div className="bg-white px-[24px] py-[24px]">
             <h2 className="font-['Inter:Semi_Bold',sans-serif] font-semibold text-[14px] leading-[20px] text-[#1f2a37] mb-[20px]">
@@ -262,6 +398,12 @@ export function EditProfile({ onBack }: EditProfileProps) {
                   onChange={(e) => handleChange("dateOfBirth", e.target.value)}
                   className="w-full h-[48px] px-[16px] bg-[#f9fafb] border-[1.5px] border-[#e5e7eb] rounded-[8px] font-['Inter:Regular',sans-serif] font-normal text-[15px] text-[#1f2a37] focus:outline-none focus:border-[#fe456a] focus:bg-white transition-colors"
                 />
+              </div>
+
+              {/* Nationality */}
+              <div>
+                <label className="block font-['Inter:Medium',sans-serif] font-medium text-[13px] leading-[18px] text-[#6b7280] mb-[8px]">Gender</label>
+                <select value={formData.gender} onChange={(e) => handleChange("gender", e.target.value)} className="w-full h-[48px] px-[16px] bg-[#f9fafb] border-[1.5px] border-[#e5e7eb] rounded-[8px] text-[15px] text-[#1f2a37] focus:outline-none focus:border-[#fe456a]"><option value="">Select gender</option><option value="woman">Woman</option><option value="man">Man</option><option value="non-binary">Non-binary</option><option value="prefer-not-to-say">Prefer not to say</option></select>
               </div>
 
               {/* Nationality */}

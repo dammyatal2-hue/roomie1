@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { MapPin } from "lucide-react";
+import { MapPin, Navigation } from "lucide-react";
 import { useCreateListing } from "../CreateListingContext";
 
 interface LocationProps {
@@ -64,6 +64,8 @@ const LOCATION_DATA: Record<string, string[]> = {
 export function Location({ onNext }: LocationProps) {
   const { listingData, updateLocationDetails } = useCreateListing();
   const [localLocation, setLocalLocation] = useState(listingData.locationDetails);
+  const [locating, setLocating] = useState(false);
+  const [locationError, setLocationError] = useState("");
 
   const countries = useMemo(() => Object.keys(LOCATION_DATA).sort(), []);
   const cities = useMemo(() => {
@@ -85,6 +87,13 @@ export function Location({ onNext }: LocationProps) {
   };
 
   const canProceed = localLocation.country !== "" && localLocation.city !== "";
+  const useCurrentLocation = () => {
+    setLocating(true); setLocationError("");
+    navigator.geolocation.getCurrentPosition(async ({coords}) => {
+      try { const response=await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${coords.latitude}&lon=${coords.longitude}&addressdetails=1`); const result=await response.json(); const address=result.address??{}; setLocalLocation(prev=>({...prev,country:address.country??prev.country,city:address.city||address.town||address.village||prev.city,area:address.suburb||address.neighbourhood||address.county||prev.area,address:result.display_name??prev.address,latitude:coords.latitude,longitude:coords.longitude})); }
+      catch { setLocationError("Unable to identify this address."); } finally { setLocating(false); }
+    }, reason=>{setLocating(false);setLocationError(reason.message);},{enableHighAccuracy:true,timeout:15000});
+  };
 
   // Location preview
   const locationPreview = localLocation.country && localLocation.city
@@ -105,6 +114,8 @@ export function Location({ onNext }: LocationProps) {
 
       {/* Form Fields */}
       <div className="flex flex-col gap-[24px] mb-[32px]">
+        <button type="button" onClick={useCurrentLocation} disabled={locating} className="w-full h-12 border border-[#fe456a] text-[#fe456a] rounded-lg flex items-center justify-center gap-2 font-medium disabled:opacity-60"><Navigation className="size-5"/>{locating?"Finding your location…":"Use current location"}</button>
+        {locationError&&<p className="text-sm text-red-500 -mt-4">{locationError}</p>}
         {/* Country */}
         <div>
           <label className="block font-['Inter:Medium',sans-serif] font-medium text-[14px] leading-[20px] text-[#1f2a37] mb-[8px]">
@@ -215,6 +226,7 @@ export function Location({ onNext }: LocationProps) {
             </div>
           </div>
         )}
+        {localLocation.latitude != null && localLocation.longitude != null && <div className="h-52 rounded-xl overflow-hidden border"><iframe title="Listing location map" className="size-full border-0" src={`https://www.openstreetmap.org/export/embed.html?bbox=${localLocation.longitude-0.015}%2C${localLocation.latitude-0.01}%2C${localLocation.longitude+0.015}%2C${localLocation.latitude+0.01}&layer=mapnik&marker=${localLocation.latitude}%2C${localLocation.longitude}`}/></div>}
       </div>
 
       {/* Continue Button */}

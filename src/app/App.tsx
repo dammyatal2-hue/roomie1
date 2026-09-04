@@ -44,53 +44,136 @@ import { SuccessReset } from "./components/SuccessReset";
 import type { RequestStatus } from "./components";
 import { useAuth } from "./auth/AuthProvider";
 import { isSupabaseConfigured } from "../lib/supabase";
+import { supabase } from "../lib/supabase";
+import { SavedListings } from "./components/SavedListings";
+import { ProfileSetup } from "./components/ProfileSetup";
 
 const sanitizeLog = (value: unknown): string =>
   String(value).replace(/[\r\n]/g, " ");
 
 type AppScreen = string;
 
+const mapDatabaseListing = (row: any) => ({ intent: row.intent, livingSetup: row.living_setup, existingRoommates: row.details?.roommates ?? [], spaceDetails: row.details?.space ?? { bedrooms:"", bathrooms:"", furnished:null, privateBathroom:null, utilitiesIncluded:null }, locationDetails: { country:row.country, city:row.city, area:row.area, address:row.address ?? "", hideAddress:row.hide_address }, idealFor:row.ideal_for ?? [], nearbyFacilities:row.details?.nearby ?? [], rent:String(row.rent), rentPeriod:row.rent_period || "month", deposit:String(row.deposit), moveInDate:row.move_in_date, minimumStay:row.minimum_stay, photos:[], description:row.description });
+
 function AppContent() {
-  const { session, loading: isLoading, signIn, signUp, signOut } = useAuth();
+  const { session, loading: isLoading, signIn, signUp, signInWithOAuth, sendPasswordReset, updatePassword, signOut } = useAuth();
   const isAuthenticated = Boolean(session);
-  const [currentScreen, setCurrentScreen] = useState<AppScreen>(isAuthenticated ? "MAIN_TABS" : "LOGIN");
+  const [passwordRecovery] = useState(() => new URLSearchParams(window.location.search).get("reset-password") === "true");
+  const [currentScreen, setCurrentScreen] = useState<AppScreen>(passwordRecovery ? "CHANGE_PASSWORD" : isAuthenticated ? "MAIN_TABS" : "GUEST_HOME");
   const [activeTab, setActiveTab] = useState("home");
   const [bookingRequestType, setBookingRequestType] = useState<"shared" | "entire">("shared");
   const [currentChatStatus, setCurrentChatStatus] = useState<RequestStatus | undefined>("accepted");
+  const [currentConversationId, setCurrentConversationId] = useState<string | undefined>();
   const [selectedCity, setSelectedCity] = useState<string | null>(null);
+  const [selectedListing, setSelectedListing] = useState<any | null>(null);
+  const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
   const [currentRequestId, setCurrentRequestId] = useState<string>("");
   const [currentRequestType, setCurrentRequestType] = useState<"received" | "sent">("received");
+  const [autoLocate, setAutoLocate] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [listingLoadError, setListingLoadError] = useState("");
+  const [checkingOnboarding, setCheckingOnboarding] = useState(true);
+
+  const openListingById = async (listingId: string) => {
+    setListingLoadError("");
+    setCurrentScreen("LISTING_LOADING");
+    const { data, error } = await supabase.from("listings").select("*,listing_photos(storage_path)").eq("id", listingId).eq("status", "published").maybeSingle();
+    if (error || !data) {
+      setListingLoadError(error?.message || "This listing is no longer available.");
+      return;
+    }
+    const { data: owner } = await supabase.from("profiles").select("id,username,full_name,avatar_url,bio,city,country,occupation,date_of_birth").eq("id", data.owner_id).maybeSingle();
+    setSelectedListing({ ...data, profiles: owner ?? null });
+    if (session?.user) void supabase.from("listing_views").upsert({ user_id: session.user.id, listing_id: listingId, viewed_at: new Date().toISOString() });
+    void supabase.rpc("increment_listing_view", { target_listing_id: listingId });
+    setCurrentScreen(data.intent === "roommate" ? "PROPERTY_DETAILS" : "RENTAL_DETAILS");
+  };
 
   // Demo: Request status state (can be toggled for testing)
   const [demoRequestStatus, setDemoRequestStatus] = useState<RequestStatus | undefined>(undefined);
   
   // Demo: Unread notification and message badges (set to true to show badges)
-  const [hasUnreadNotifications, setHasUnreadNotifications] = useState(true);
-  const [hasUnreadMessages, setHasUnreadMessages] = useState(true);
+  const [hasUnreadNotifications, setHasUnreadNotifications] = useState(false);
+  const [hasUnreadMessages, setHasUnreadMessages] = useState(false);
 
-  // Handle initial screen state based on auth
   useEffect(() => {
-    if (!isLoading) {
-      setCurrentScreen(isAuthenticated ? "MAIN_TABS" : "LOGIN");
+    if (!session?.user) { setHasUnreadNotifications(false); setHasUnreadMessages(false); return; }
+    const loadUnread = () => supabase.from("notifications").select("type").eq("user_id", session.user.id).is("read_at", null).then(({ data }) => {
+      const rows = data ?? [];
+      setHasUnreadMessages(rows.some((row: any) => row.type === "new_message"));
+      setHasUnreadNotifications(rows.some((row: any) => row.type !== "new_message"));
+    });
+    loadUnread();
+    const channel = supabase.channel(`unread:${session.user.id}`).on("postgres_changes", { event: "*", schema: "public", table: "notifications", filter: `user_id=eq.${session.user.id}` }, loadUnread).subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [session?.user]);
+  useEffect(() => { if (!session?.user) return setIsAdmin(false); supabase.from("profiles").select("role").eq("id", session.user.id).single().then(({data})=>setIsAdmin(data?.role === "admin")); }, [session?.user]);
+
+  useEffect(() => {
+    if (isLoading) return;
+    if (passwordRecovery) {
+      setCurrentScreen("CHANGE_PASSWORD");
+      setCheckingOnboarding(false);
+      return;
     }
-  }, [isAuthenticated, isLoading]);
+    if (!session?.user) {
+      setCheckingOnboarding(false);
+      return;
+    }
+    let active = true;
+    setCheckingOnboarding(true);
+    Promise.all([
+      supabase.from("profiles").select("full_name,gender,occupation,bio").eq("id", session.user.id).maybeSingle(),
+      supabase.from("preferences").select("answers").eq("user_id", session.user.id).maybeSingle(),
+    ]).then(([profileResult, preferencesResult]) => {
+      if (!active) return;
+      const profile = profileResult.data;
+      const answers = preferencesResult.data?.answers as Record<string, unknown> | undefined;
+      const profileIncomplete = !profile?.full_name || !profile?.gender || !profile?.occupation || !profile?.bio;
+      const preferencesIncomplete = !answers || Object.keys(answers).length === 0;
+      if (profileIncomplete) setCurrentScreen("PROFILE_SETUP");
+      else if (preferencesIncomplete) setCurrentScreen("ONBOARDING");
+      else setCurrentScreen("MAIN_TABS");
+      setCheckingOnboarding(false);
+    }).catch(() => {
+      if (!active) return;
+      setCurrentScreen("PROFILE_SETUP");
+      setCheckingOnboarding(false);
+    });
+    return () => { active = false; };
+  }, [isLoading, passwordRecovery, session?.user?.id]);
 
   if (!isSupabaseConfigured) return <div className="min-h-screen bg-[#fcfcfd] grid place-items-center p-6"><div className="max-w-lg rounded-2xl bg-white border border-[#e5e7eb] p-8"><h1 className="text-xl font-semibold">Connect Roomie to Supabase</h1><p className="mt-3 text-sm text-[#667085]">Copy <code>.env.example</code> to <code>.env.local</code>, add the project URL and anon key, then run the SQL migration in <code>supabase/migrations</code>.</p></div></div>;
-  if (isLoading) return <div className="size-full flex items-center justify-center">Loading...</div>;
+  if (isLoading || checkingOnboarding) return <div className="size-full flex items-center justify-center">Loading...</div>;
+
+  if (currentScreen === "LISTING_LOADING") return <div className="min-h-screen grid place-items-center p-6 bg-[#fafafa]"><div className="text-center">{listingLoadError ? <><h1 className="font-semibold text-lg">Unable to open listing</h1><p className="text-sm text-gray-500 mt-2">{listingLoadError}</p><button onClick={()=>setCurrentScreen(isAuthenticated?"MAIN_TABS":"GUEST_HOME")} className="mt-5 px-5 py-3 rounded-lg bg-[#fe456a] text-white">Go back</button></> : <><div className="size-9 border-4 border-[#fe456a]/20 border-t-[#fe456a] rounded-full animate-spin mx-auto"/><p className="text-sm text-gray-500 mt-4">Opening property…</p></>}</div></div>;
+
+  if (!isAuthenticated && currentScreen === "GUEST_HOME") {
+    const openSignIn = () => setCurrentScreen("LOGIN");
+    return (
+      <div className="size-full flex flex-col bg-[#fafafa]">
+        <div className="flex-1 overflow-auto">
+          <Home guestMode hasUnreadNotifications={false} hasUnreadMessages={false} onOpenMessages={openSignIn} onOpenNotifications={openSignIn} onStartMatching={openSignIn} onBrowseHomes={openSignIn} onCompletePreferences={openSignIn} onViewListing={openListingById} />
+        </div>
+        <BottomNavigation activeTab="home" onTabChange={openSignIn} />
+      </div>
+    );
+  }
 
   // If admin dashboard is active, show it (full screen, no navigation)
   if (currentScreen === "ADMIN_DASHBOARD") {
-    return <AdminDashboard onExit={() => setCurrentScreen("MAIN_TABS")} />;
+    return isAdmin ? <AdminDashboard onExit={() => setCurrentScreen("MAIN_TABS")} /> : <div className="min-h-screen grid place-items-center p-6"><div className="text-center"><h1 className="text-xl font-semibold">Access denied</h1><p className="text-sm text-gray-500 mt-2">This account is not an administrator.</p><button onClick={()=>setCurrentScreen("MAIN_TABS")} className="mt-5 px-5 py-3 bg-[#fe456a] text-white rounded-lg">Back to Roomie</button></div></div>;
   }
 
   // Show login if not authenticated
   if (!isAuthenticated && currentScreen === "LOGIN") {
     return (
       <Login
-        onBack={() => setCurrentScreen("ONBOARDING_FLOW")}
+        onBack={() => setCurrentScreen("GUEST_HOME")}
         onSignIn={async (email, password) => { await signIn(email, password); setCurrentScreen("MAIN_TABS"); }}
         onSignUp={() => setCurrentScreen("SIGNUP")}
         onForgotPassword={() => setCurrentScreen("FORGOT_PASSWORD")}
+        onSocialSignIn={signInWithOAuth}
       />
     );
   }
@@ -100,10 +183,7 @@ function AppContent() {
     return (
       <ForgotPassword
         onBack={() => setCurrentScreen("LOGIN")}
-        onContinue={(method) => {
-          console.log("Password reset method:", sanitizeLog(method));
-          setCurrentScreen("VERIFY_EMAIL");
-        }}
+        onContinue={sendPasswordReset}
       />
     );
   }
@@ -126,8 +206,9 @@ function AppContent() {
     return (
       <ChangePassword
         onBack={() => setCurrentScreen("VERIFY_EMAIL")}
-        onChangePassword={(_newPassword, _confirmPassword) => {
-          console.log("New password set");
+        onChangePassword={async (newPassword, _confirmPassword) => {
+          await updatePassword(newPassword);
+          window.history.replaceState({}, "", window.location.pathname);
           setCurrentScreen("SUCCESS_RESET");
         }}
       />
@@ -143,12 +224,18 @@ function AppContent() {
 
   // If booking request is active, show it
   if (currentScreen === "BOOKING_REQUEST") {
+    const photoPath = selectedListing?.listing_photos?.[0]?.storage_path;
     return (
       <BookingRequest
-        onBack={() => setCurrentScreen("MAIN_TABS")}
+        onBack={() => setCurrentScreen(selectedListing?.intent === "rental" ? "RENTAL_DETAILS" : "PROPERTY_DETAILS")}
         listingType={bookingRequestType}
-        onSendRequest={(requestData) => {
-          console.log("Request sent:", sanitizeLog(JSON.stringify(requestData)));
+        listingData={selectedListing ? { title: selectedListing.title, coverImage: photoPath ? supabase.storage.from("listing-photos").getPublicUrl(photoPath).data.publicUrl : undefined, livingSetup: selectedListing.living_setup, city: selectedListing.city, neighborhood: selectedListing.area, price: String(selectedListing.rent), priceUnit: `/${selectedListing.rent_period || "month"}`, moveInDate: selectedListing.move_in_date } : undefined}
+        onSendRequest={async (requestData) => {
+          if (!session?.user || !selectedListing?.id || !selectedListing?.owner_id) throw new Error("Please sign in and select a listing first.");
+          if (selectedListing.owner_id === session.user.id) throw new Error("You cannot request your own listing.");
+          const message = [requestData.introMessage.trim(), `Preferred move-in: ${requestData.moveInDate}`, `Length of stay: ${requestData.lengthOfStay}`].filter(Boolean).join("\n");
+          const { error } = await supabase.from("booking_requests").insert({ listing_id: selectedListing.id, requester_id: session.user.id, owner_id: selectedListing.owner_id, message });
+          if (error) throw error;
           setDemoRequestStatus("pending");
           setCurrentScreen("REQUEST_TO_JOIN");
         }}
@@ -163,15 +250,20 @@ function AppContent() {
         onBack={() => setCurrentScreen("REQUESTS_INBOX")}
         requestType={currentRequestType}
         requestId={currentRequestId}
-        onAccept={() => {
-          console.log("Request accepted:", sanitizeLog(currentRequestId));
+        onAccept={async () => {
+          const { error } = await supabase.rpc("handle_booking_request", { p_request_id: currentRequestId, p_status: "accepted" });
+          if (error) return;
           setCurrentScreen("REQUESTS_INBOX");
         }}
-        onDecline={() => {
-          console.log("Request declined:", sanitizeLog(currentRequestId));
+        onDecline={async () => {
+          const { error } = await supabase.rpc("handle_booking_request", { p_request_id: currentRequestId, p_status: "declined" });
+          if (error) return;
           setCurrentScreen("REQUESTS_INBOX");
         }}
-        onStartChat={() => {
+        onStartChat={async () => {
+          const { data } = await supabase.from("conversations").select("id").eq("request_id", currentRequestId).maybeSingle();
+          if (!data) return;
+          setCurrentConversationId(data.id);
           setCurrentChatStatus("accepted");
           setCurrentScreen("CHAT_THREAD");
         }}
@@ -245,20 +337,16 @@ function AppContent() {
   if (currentScreen === "REQUEST_HANDLING_SETTINGS") {
     return <RequestHandlingSettings onBack={() => setCurrentScreen("MAIN_TABS")} />;
   }
+  if (currentScreen === "FAVORITES") return <SavedListings mode="favorites" onBack={() => setCurrentScreen("MAIN_TABS")} />;
+  if (currentScreen === "RECENT_VIEWED") return <SavedListings mode="recent" onBack={() => setCurrentScreen("MAIN_TABS")} />;
 
   // If city listings is active, show it
   if (currentScreen === "CITY_LISTINGS" && selectedCity) {
     return (
       <CityListings
         cityName={selectedCity}
-        onBack={() => setSelectedCity(null)}
-        onViewListing={(listingType) => {
-          if (listingType === "shared") {
-            setCurrentScreen("PROPERTY_DETAILS");
-          } else {
-            setCurrentScreen("RENTAL_DETAILS");
-          }
-        }}
+        onBack={() => { setSelectedCity(null); setCurrentScreen("MAIN_TABS"); }}
+        onViewListing={openListingById}
       />
     );
   }
@@ -269,6 +357,7 @@ function AppContent() {
       <ChatThread
         onBack={() => setCurrentScreen("MESSAGES")}
         requestStatus={currentChatStatus}
+        conversationId={currentConversationId}
       />
     );
   }
@@ -292,22 +381,21 @@ function AppContent() {
         onNotificationClick={(notification) => {
           switch (notification.type) {
             case "new_request":
-              setDemoRequestStatus("pending");
-              setCurrentScreen("REQUEST_TO_JOIN");
+              if (notification.entityId) { setCurrentRequestId(notification.entityId); setCurrentRequestType("received"); setCurrentScreen("REQUEST_DETAIL"); }
               break;
             case "request_accepted":
-              setCurrentScreen("REQUEST_ACCEPTED");
+              if (notification.entityId) { setCurrentRequestId(notification.entityId); setCurrentRequestType("sent"); setCurrentScreen("REQUEST_DETAIL"); }
               break;
             case "request_declined":
-              setDemoRequestStatus("declined");
-              setCurrentScreen("REQUEST_TO_JOIN");
+              if (notification.entityId) { setCurrentRequestId(notification.entityId); setCurrentRequestType("sent"); setCurrentScreen("REQUEST_DETAIL"); }
               break;
             case "new_message":
               setCurrentChatStatus("accepted");
+              setCurrentConversationId(notification.entityId);
               setCurrentScreen("CHAT_THREAD");
               break;
             case "new_match":
-              setCurrentScreen("PROPERTY_DETAILS");
+              setCurrentScreen("MATCHING");
               break;
             case "system":
               setActiveTab("profile");
@@ -326,6 +414,7 @@ function AppContent() {
         onBack={() => setCurrentScreen("MAIN_TABS")}
         onOpenChat={(messageId, status) => {
           setCurrentChatStatus(status);
+          setCurrentConversationId(messageId);
           setCurrentScreen("CHAT_THREAD");
         }}
       />
@@ -337,9 +426,17 @@ function AppContent() {
     return (
       <RequestToJoin
         onBack={() => setCurrentScreen("MAIN_TABS")}
+        listing={selectedListing ? mapDatabaseListing(selectedListing) : undefined}
         requestStatus={demoRequestStatus}
-        onStartChat={() => {
-          setCurrentScreen("REQUEST_ACCEPTED");
+        onStartChat={async () => {
+          if (!session?.user || !selectedListing?.id) return;
+          const { data: request } = await supabase.from("booking_requests").select("id").eq("listing_id", selectedListing.id).eq("requester_id", session.user.id).eq("status", "accepted").maybeSingle();
+          if (!request) return setCurrentScreen("REQUESTS_INBOX");
+          const { data: conversation } = await supabase.from("conversations").select("id").eq("request_id", request.id).maybeSingle();
+          if (!conversation) return setCurrentScreen("REQUESTS_INBOX");
+          setCurrentConversationId(conversation.id);
+          setCurrentChatStatus("accepted");
+          setCurrentScreen("CHAT_THREAD");
         }}
         onFindOtherHomes={() => {
           setActiveTab("explore");
@@ -351,18 +448,23 @@ function AppContent() {
 
   // If preferences editor is active, show it
   if (currentScreen === "ONBOARDING") {
-    return <LifestylePreferencesFigma onBack={() => setCurrentScreen("MAIN_TABS")} onComplete={() => setCurrentScreen("MAIN_TABS")} />;
+    return <><LifestylePreferencesFigma onBack={() => setCurrentScreen("MAIN_TABS")} onComplete={() => { setActiveTab("home"); setCurrentScreen("MAIN_TABS"); }} /><Toaster /></>;
+  }
+
+  if (currentScreen === "PROFILE_SETUP") {
+    return <ProfileSetup onBack={() => setCurrentScreen("SELECT_LOCATION")} onComplete={() => setCurrentScreen("ONBOARDING")} />;
   }
 
   // If matching is active, show it
   if (currentScreen === "MATCHING") {
-    return <RoommateMatching onBack={() => setCurrentScreen("MAIN_TABS")} />;
+    return <RoommateMatching onBack={() => setCurrentScreen("MAIN_TABS")} onViewProfile={(userId) => { setSelectedProfileId(userId); setCurrentScreen("PUBLIC_PROFILE"); }} />;
   }
 
   // If public profile is active, show it
   if (currentScreen === "PUBLIC_PROFILE") {
     return (
       <PublicProfileView
+        profileId={selectedProfileId}
         onBack={() => setCurrentScreen("PROPERTY_DETAILS")}
         connectionStatus="not-connected"
         onChat={() => {
@@ -379,10 +481,14 @@ function AppContent() {
 
   // If rental details is active, show it
   if (currentScreen === "RENTAL_DETAILS") {
+    if (!selectedListing) return <div className="min-h-screen grid place-items-center p-6 text-center"><div><p className="text-sm text-[#6b7280]">No rental was selected.</p><button onClick={() => setCurrentScreen(isAuthenticated ? "MAIN_TABS" : "GUEST_HOME")} className="mt-4 px-5 py-2.5 rounded-lg bg-[#fe456a] text-white">Go back</button></div></div>;
     return (
       <RentalDetails
-        onBack={() => setCurrentScreen("MAIN_TABS")}
+        listing={selectedListing ? mapDatabaseListing(selectedListing) : undefined}
+        record={selectedListing}
+        onBack={() => setCurrentScreen(isAuthenticated ? "MAIN_TABS" : "GUEST_HOME")}
         onRentNow={() => {
+          if (!isAuthenticated) return setCurrentScreen("LOGIN");
           setBookingRequestType("entire");
           setCurrentScreen("BOOKING_REQUEST");
         }}
@@ -392,15 +498,20 @@ function AppContent() {
 
   // If property details is active, show it
   if (currentScreen === "PROPERTY_DETAILS") {
+    if (!selectedListing) return <div className="min-h-screen grid place-items-center p-6 text-center"><div><p className="text-sm text-[#6b7280]">No property was selected.</p><button onClick={() => setCurrentScreen(isAuthenticated ? "MAIN_TABS" : "GUEST_HOME")} className="mt-4 px-5 py-2.5 rounded-lg bg-[#fe456a] text-white">Go back</button></div></div>;
     return (
       <PropertyDetails 
-        onBack={() => setCurrentScreen("MAIN_TABS")} 
+        listing={selectedListing ? mapDatabaseListing(selectedListing) : undefined}
+        record={selectedListing}
+        onBack={() => setCurrentScreen(isAuthenticated ? "MAIN_TABS" : "GUEST_HOME")}
         onRequestToJoin={() => {
+          if (!isAuthenticated) return setCurrentScreen("LOGIN");
           setBookingRequestType("shared");
           setCurrentScreen("BOOKING_REQUEST");
         }}
         onViewProfile={(userId) => {
-          console.log("View profile:", sanitizeLog(userId));
+          if (!isAuthenticated) return setCurrentScreen("LOGIN");
+          setSelectedProfileId(userId);
           setCurrentScreen("PUBLIC_PROFILE");
         }}
       />
@@ -427,9 +538,27 @@ function AppContent() {
     return (
       <SignUpScreen
         onBack={() => setCurrentScreen("ONBOARDING_FLOW")}
-        onSignUp={async (email, password, username) => { await signUp(email, password, username); setCurrentScreen("SELECT_LOCATION"); }}
+        onSignUp={async (email, password, username) => {
+          await signUp(email, password, username);
+          const { data } = await supabase.auth.getSession();
+          setCurrentScreen(data.session ? "SELECT_LOCATION" : "CHECK_EMAIL");
+        }}
         onSignIn={() => setCurrentScreen("LOGIN")}
+        onSocialSignIn={signInWithOAuth}
       />
+    );
+  }
+
+  if (currentScreen === "CHECK_EMAIL") {
+    return (
+      <div className="min-h-screen bg-[#fcfcfd] grid place-items-center px-6">
+        <div className="max-w-sm w-full text-center">
+          <div className="size-16 rounded-full bg-[#fff0f3] text-[#fe456a] grid place-items-center mx-auto text-2xl">✉</div>
+          <h1 className="mt-6 text-2xl font-semibold text-[#1f2a37]">Check your email</h1>
+          <p className="mt-3 text-sm leading-6 text-[#6b7280]">Open the confirmation link we sent you. When you return, Roomie will continue with your profile setup.</p>
+          <button onClick={() => setCurrentScreen("LOGIN")} className="mt-7 w-full h-12 rounded-lg bg-[#fe456a] text-white font-semibold">Go to sign in</button>
+        </div>
+      </div>
     );
   }
 
@@ -438,11 +567,11 @@ function AppContent() {
     return (
       <SelectLocationScreen
         onSkip={() => {
-          setCurrentScreen("ONBOARDING"); 
+          setCurrentScreen("PROFILE_SETUP"); 
         }}
         onUseCurrentLocation={() => {
-          console.log("Use current location");
-          setCurrentScreen("ONBOARDING"); 
+          setAutoLocate(true);
+          setCurrentScreen("MAPS");
         }}
         onSelectManually={() => {
           setCurrentScreen("MAPS");
@@ -456,9 +585,11 @@ function AppContent() {
     return (
       <MapsScreen
         onBack={() => setCurrentScreen("SELECT_LOCATION")}
-        onChooseLocation={() => {
-          console.log("Location chosen");
-          setCurrentScreen("ONBOARDING"); 
+        autoLocate={autoLocate}
+        onChooseLocation={async (location) => {
+          if (session?.user) await supabase.from("profiles").update({ city: location.city || null, country: location.country || null }).eq("id", session.user.id);
+          setAutoLocate(false);
+          setCurrentScreen("PROFILE_SETUP"); 
         }}
       />
     );
@@ -487,28 +618,20 @@ function AppContent() {
             onStartMatching={() => setCurrentScreen("MATCHING")}
             onBrowseHomes={() => setActiveTab("explore")}
             onCompletePreferences={() => setCurrentScreen("ONBOARDING")}
+            onViewListing={openListingById}
           />
         )}
-        {activeTab === "community" && (
-          <Community 
-            onOpenMessages={() => setCurrentScreen("MESSAGES")}
-            onOpenNotifications={() => setCurrentScreen("NOTIFICATIONS")}
-            hasUnreadNotifications={hasUnreadNotifications}
-            hasUnreadMessages={hasUnreadMessages}
-            onStartMatching={() => setCurrentScreen("MATCHING")}
-            onBrowseHomes={() => setActiveTab("explore")}
-            onCreateListing={() => setCurrentScreen("CREATE_LISTING")}
-          />
-        )}
+        {activeTab === "community" && <CommunityFeed />}
         {activeTab === "explore" && (
           <Explore 
-            onViewListing={() => setCurrentScreen("PROPERTY_DETAILS")}
+            onViewListing={openListingById}
             onViewProfile={() => setCurrentScreen("MATCHING")}
             onSelectCity={(cityName) => {
               // For demo: selecting a city opens the property details page
               // In a real app, this would navigate to a city-specific listings page
               console.log("Selected city:", sanitizeLog(cityName));
               setSelectedCity(cityName);
+              setCurrentScreen("CITY_LISTINGS");
             }}
           />
         )}
@@ -523,6 +646,12 @@ function AppContent() {
             onBookingRequests={() => setCurrentScreen("REQUESTS_INBOX")}
             onAbout={() => setCurrentScreen("ABOUT")}
             onEditProfile={() => setCurrentScreen("EDIT_PROFILE")}
+            onSettings={() => setCurrentScreen("EDIT_PROFILE")}
+            onFavorites={() => setCurrentScreen("FAVORITES")}
+            onRecentViewed={() => setCurrentScreen("RECENT_VIEWED")}
+            onAdminDashboard={() => setCurrentScreen("ADMIN_DASHBOARD")}
+            onCreateListing={() => setCurrentScreen("CREATE_LISTING")}
+            onMyListings={() => setActiveTab("favorite")}
             onSignOut={() => {
               signOut();
               setActiveTab("home");

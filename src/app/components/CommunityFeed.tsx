@@ -10,7 +10,7 @@ interface CommunityFeedProps {
 }
 
 export function CommunityFeed({ onBack }: CommunityFeedProps) {
-  const { activeFilter, setActiveFilter, filteredPosts, handleCreatePost, filterCategories } = useCommunityFeed();
+  const { activeFilter, setActiveFilter, filteredPosts, handleCreatePost, filterCategories, deletePost, toggleLike, addComment, currentUserId, loading, error } = useCommunityFeed();
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   return (
@@ -61,19 +61,23 @@ export function CommunityFeed({ onBack }: CommunityFeedProps) {
         <div className="flex items-center gap-2">
           <Users className="w-[16px] h-[16px] text-[#9da4ae]" />
           <p className="font-['Inter:Regular',sans-serif] font-normal text-[13px] leading-[16px] text-[#6b7280]">
-            Posts from <span className="font-semibold text-[#1f2a37]">Kigali</span>
+            Posts from the Roomie community
           </p>
         </div>
       </div>
 
       {/* Feed */}
       <div className="px-6 py-4">
-        {filteredPosts.length === 0 ? (
+        {loading ? (
+          <p className="text-center text-sm text-[#6b7280] py-10">Loading community posts…</p>
+        ) : error ? (
+          <p className="text-center text-sm text-red-600 py-10">Could not load posts: {error}</p>
+        ) : filteredPosts.length === 0 ? (
           <EmptyState onCreatePost={() => setIsModalOpen(true)} />
         ) : (
           <div className="flex flex-col gap-4 max-w-[600px] mx-auto">
             {filteredPosts.map((post) => (
-              <PostCard key={post.id} {...post} />
+              <PostCard key={post.id} {...post} isOwner={post.authorId === currentUserId} onDelete={deletePost} onToggleLike={toggleLike} onAddComment={addComment} />
             ))}
           </div>
         )}

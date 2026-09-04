@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { X, Heart, MapPin, Briefcase, Home, Sparkles, ChevronDown, ChevronUp } from "lucide-react";
+import { X, Heart, MapPin, Briefcase, Home, Sparkles, ChevronDown, ChevronUp, Info } from "lucide-react";
 
 interface RoommateProfile {
   id: string;
@@ -19,9 +19,10 @@ interface MatchCardProps {
   profile: RoommateProfile;
   onSwipeLeft: () => void;
   onSwipeRight: () => void;
+  onViewProfile?: () => void;
 }
 
-export function MatchCard({ profile, onSwipeLeft, onSwipeRight }: MatchCardProps) {
+export function MatchCard({ profile, onSwipeLeft, onSwipeRight, onViewProfile }: MatchCardProps) {
   const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
@@ -136,6 +137,8 @@ export function MatchCard({ profile, onSwipeLeft, onSwipeRight }: MatchCardProps
             draggable={false}
           />
           <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
+
+          {onViewProfile && <button type="button" aria-label={`View ${profile.firstName}'s full profile`} onMouseDown={(event) => event.stopPropagation()} onTouchStart={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onViewProfile(); }} className="absolute top-5 left-5 z-20 size-11 rounded-full bg-white/95 backdrop-blur-sm shadow-md flex items-center justify-center text-[#fe456a] hover:bg-white"><Info className="size-6" /></button>}
 
           {/* Compatibility Badge */}
           <div className="absolute top-[20px] right-[20px] bg-white/95 backdrop-blur-sm rounded-[16px] px-[16px] py-[10px] shadow-[0px_4px_12px_0px_rgba(0,0,0,0.15)]">

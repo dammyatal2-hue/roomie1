@@ -61,16 +61,17 @@ export function About({
   return (
     <div className="size-full flex flex-col bg-[#fafafa] overflow-auto">
       {/* Status Bar Spacer */}
-      <div className="h-[44px] bg-white" />
+      <div className="h-[max(env(safe-area-inset-top),8px)] bg-white" />
 
       {/* Header */}
-      <div className="bg-white px-[20px] py-[16px] border-b border-[#e5e7eb] flex items-center gap-[16px]">
+      <div className="bg-white px-5 py-3 border-b border-[#e5e7eb] grid grid-cols-[40px_1fr_40px] items-center">
         <button onClick={onBack} className="flex items-center justify-center">
           <ArrowLeft size={24} className="text-[#1f2a37]" />
         </button>
-        <h1 className="font-['Inter:Semi_Bold',sans-serif] font-semibold text-[18px] leading-[28px] text-[#1f2a37]">
+        <h1 className="font-['Inter:Semi_Bold',sans-serif] font-semibold text-[17px] leading-6 text-[#1f2a37] text-center">
           About Roomie
         </h1>
+        <div aria-hidden="true" />
       </div>
 
       {/* Content */}

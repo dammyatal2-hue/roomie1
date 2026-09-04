@@ -1,5 +1,7 @@
-import { Settings, Users, Heart, BookmarkCheck, Clock, Info, ChevronRight, CheckSquare, LogOut } from "lucide-react";
-import imgProfilePhoto from "figma:asset/77938430027354896c22b7e6126a262594b019e5.png";
+import { Settings, Users, Heart, BookmarkCheck, Clock, Info, ChevronRight, CheckSquare, LogOut, ShieldCheck } from "lucide-react";
+import { useEffect, useState } from "react";
+import { useAuth } from "../auth/AuthProvider";
+import { supabase } from "../../lib/supabase";
 
 interface ProfileProps {
   onStartMatching: () => void;
@@ -9,6 +11,12 @@ interface ProfileProps {
   onAbout?: () => void;
   onEditProfile?: () => void;
   onSignOut?: () => void;
+  onSettings?: () => void;
+  onFavorites?: () => void;
+  onRecentViewed?: () => void;
+  onAdminDashboard?: () => void;
+  onCreateListing?: () => void;
+  onMyListings?: () => void;
 }
 
 interface MenuItem {
@@ -18,9 +26,13 @@ interface MenuItem {
   onClick: () => void;
 }
 
-export function Profile({ onStartMatching, onEditLifestylePreferences, onRequestHandlingSettings, onBookingRequests, onAbout, onEditProfile, onSignOut }: ProfileProps) {
+export function Profile({ onStartMatching, onEditLifestylePreferences, onRequestHandlingSettings, onBookingRequests, onAbout, onEditProfile, onSignOut, onSettings, onFavorites, onRecentViewed, onAdminDashboard, onCreateListing, onMyListings }: ProfileProps) {
+  const { user } = useAuth();
+  const [profile, setProfile] = useState<{ full_name: string | null; username: string; avatar_url: string | null; role: "user" | "admin" } | null>(null);
+  useEffect(() => { if (user) supabase.from("profiles").select("full_name,username,avatar_url,role").eq("id", user.id).single().then(({ data }) => setProfile(data)); }, [user]);
+  const defaultAvatar = `https://api.dicebear.com/9.x/initials/svg?seed=${encodeURIComponent(profile?.full_name || profile?.username || user?.email || "Roomie")}&backgroundColor=fe456a&fontFamily=Arial`;
   const menuItems: MenuItem[] = [
-    { icon: Settings, label: "Settings", onClick: () => {} },
+    { icon: Settings, label: "Settings", onClick: onSettings || (() => {}) },
     { 
       icon: Users, 
       label: "Lifestyle Preferences", 
@@ -33,17 +45,18 @@ export function Profile({ onStartMatching, onEditLifestylePreferences, onRequest
       summary: "Manual approval",
       onClick: onRequestHandlingSettings || (() => {}) 
     },
-    { icon: Heart, label: "Favorite", onClick: () => {} },
+    { icon: Heart, label: "Favorite", onClick: onFavorites || (() => {}) },
     { icon: BookmarkCheck, label: "Booking Request", onClick: onBookingRequests || (() => {}) },
-    { icon: Clock, label: "Recent Viewed", onClick: () => {} },
+    { icon: Clock, label: "Recent Viewed", onClick: onRecentViewed || (() => {}) },
     { icon: Info, label: "About", onClick: onAbout || (() => {}) },
+    ...(profile?.role === "admin" ? [{ icon: ShieldCheck, label: "Admin Dashboard", summary: "Manage Roomie", onClick: onAdminDashboard || (() => {}) }] : []),
     { icon: LogOut, label: "Sign Out", onClick: onSignOut || (() => {}) },
   ];
 
   return (
     <div className="size-full flex flex-col bg-[#fafafa]">
       {/* Status Bar Spacer */}
-      <div className="h-[44px] bg-white" />
+      <div className="h-[max(env(safe-area-inset-top),8px)] bg-white" />
 
       {/* Header */}
       <div className="bg-white px-[24px] py-[16px] border-b border-[#e5e7eb]">
@@ -61,7 +74,7 @@ export function Profile({ onStartMatching, onEditLifestylePreferences, onRequest
         >
           <div className="relative mb-[16px]">
             <img
-              src={imgProfilePhoto}
+              src={profile?.avatar_url || defaultAvatar}
               alt="Profile"
               className="w-[100px] h-[100px] rounded-full object-cover"
             />
@@ -76,16 +89,16 @@ export function Profile({ onStartMatching, onEditLifestylePreferences, onRequest
             </div>
           </div>
           <h2 className="font-['Inter:Semi_Bold',sans-serif] font-semibold text-[14px] leading-[18px] text-[#1f2a37] mb-[2px]">
-            Dammy
+            {profile?.full_name || profile?.username || "Roomie member"}
           </h2>
           <p className="font-['Inter:Regular',sans-serif] font-normal text-[12px] leading-[18px] text-[#9da4ae]">
-            dammy@gmail.com
+            {user?.email || ""}
           </p>
         </button>
 
         {/* Action Buttons */}
         <div className="px-[24px] pb-[32px] flex gap-[12px]">
-          <button className="flex-1 h-[68px] bg-white rounded-[12px] border border-[#e5e7eb] flex flex-col items-center justify-center gap-[4px] hover:bg-[#f9fafb] transition-colors">
+          <button onClick={onCreateListing} className="flex-1 h-[68px] bg-white rounded-[12px] border border-[#e5e7eb] flex flex-col items-center justify-center gap-[4px] hover:bg-[#f9fafb] transition-colors">
             <svg
               className="w-[24px] h-[24px]"
               fill="none"
@@ -103,7 +116,7 @@ export function Profile({ onStartMatching, onEditLifestylePreferences, onRequest
               List Your Space
             </p>
           </button>
-          <button className="flex-1 h-[68px] bg-white rounded-[12px] border border-[#e5e7eb] flex flex-col items-center justify-center gap-[4px] hover:bg-[#f9fafb] transition-colors">
+          <button onClick={onMyListings} className="flex-1 h-[68px] bg-white rounded-[12px] border border-[#e5e7eb] flex flex-col items-center justify-center gap-[4px] hover:bg-[#f9fafb] transition-colors">
             <svg
               className="w-[24px] h-[24px]"
               fill="none"

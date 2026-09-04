@@ -1,16 +1,19 @@
 import { ArrowLeft, SlidersHorizontal, MapPin, Calendar, Users, Home } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { FilterModal } from "./FilterModal";
+import { supabase } from "../../lib/supabase";
 
 interface CityListingsProps {
   cityName: string;
   onBack: () => void;
-  onViewListing: (listingType: "shared" | "entire") => void;
+  onViewListing: (listingId: string) => void;
 }
 
 export function CityListings({ cityName, onBack, onViewListing }: CityListingsProps) {
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [activeFiltersCount, setActiveFiltersCount] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
 
   const handleApplyFilters = (count: number) => {
     setActiveFiltersCount(count);
@@ -18,7 +21,7 @@ export function CityListings({ cityName, onBack, onViewListing }: CityListingsPr
   };
 
   // Mock listings data
-  const listings = [
+  const fallbackListings = [
     {
       id: "1",
       image: "https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?w=600&h=400&fit=crop",
@@ -74,12 +77,21 @@ export function CityListings({ cityName, onBack, onViewListing }: CityListingsPr
       badges: ["1 roommate"],
     },
   ];
+  const [listings, setListings] = useState<any[]>([]);
+  useEffect(() => {
+    setLoading(true); setLoadError("");
+    supabase.from("listings").select("*,listing_photos(storage_path)").eq("status", "published").ilike("city", `%${cityName.trim()}%`).order("created_at", { ascending:false }).then(({ data, error }) => {
+      if(error) setLoadError(error.message);
+      setListings((data ?? []).map((row:any) => { const path=row.listing_photos?.[0]?.storage_path; return { id:row.id, image:path ? supabase.storage.from("listing-photos").getPublicUrl(path).data.publicUrl : "", setup:row.living_setup.replaceAll("-", " "), price:row.rent, rentPeriod:row.rent_period || "month", neighborhood:row.area, availability:`Available ${new Date(row.move_in_date).toLocaleDateString()}`, badges:[row.intent === "rental" ? "Entire home" : "Shared home"], raw:row }; }));
+      setLoading(false);
+    });
+  }, [cityName]);
 
   return (
     <>
       <div className="size-full flex flex-col bg-[#fafafa]">
         {/* Header */}
-        <div className="bg-white px-[24px] pt-[60px] pb-[16px] border-b border-[#e5e7eb]">
+        <div className="bg-white px-5 pt-[max(env(safe-area-inset-top),8px)] pb-3 border-b border-[#e5e7eb]">
           <div className="flex items-center justify-between mb-[8px]">
             <button
               onClick={onBack}
@@ -107,7 +119,7 @@ export function CityListings({ cityName, onBack, onViewListing }: CityListingsPr
 
           {/* Results Summary */}
           <p className="font-['Inter:Regular',sans-serif] font-normal text-[14px] leading-[18px] text-[#6b7280] text-center">
-            {listings.length} homes available in {cityName}
+            {loading ? "Loading homes…" : `${listings.length} homes available in ${cityName}`}
           </p>
         </div>
 
@@ -115,10 +127,12 @@ export function CityListings({ cityName, onBack, onViewListing }: CityListingsPr
         <div className="flex-1 overflow-auto pb-[24px]">
           <div className="px-[24px] py-[20px]">
             <div className="flex flex-col gap-[16px]">
+              {loadError && <div className="rounded-xl bg-red-50 border border-red-200 p-4 text-sm text-red-600">{loadError}</div>}
+              {!loading && !loadError && listings.length === 0 && <div className="py-16 text-center text-sm text-[#9da4ae]">No published homes found in {cityName}.</div>}
               {listings.map((listing) => (
                 <button
                   key={listing.id}
-                  onClick={() => onViewListing(listing.badges.includes("Entire home") ? "entire" : "shared")}
+                  onClick={() => onViewListing(listing.id)}
                   className="bg-white rounded-[12px] overflow-hidden hover:shadow-lg transition-all border border-[#e5e7eb] text-left"
                 >
                   {/* Cover Image */}
@@ -159,7 +173,7 @@ export function CityListings({ cityName, onBack, onViewListing }: CityListingsPr
                     <p className="font-['Inter:Bold',sans-serif] font-bold text-[20px] leading-[26px] text-[#fe456a] mb-[12px]">
                       ${listing.price}
                       <span className="font-['Inter:Regular',sans-serif] font-normal text-[13px] leading-[18px] text-[#9da4ae]">
-                        /month{listing.setup.includes("Shared") ? " per person" : ""}
+                        /{listing.rentPeriod}{listing.setup.includes("Shared") ? " per person" : ""}
                       </span>
                     </p>
 

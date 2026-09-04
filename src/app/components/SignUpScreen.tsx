@@ -5,9 +5,10 @@ interface SignUpScreenProps {
   onBack: () => void;
   onSignUp: (email: string, password: string, username: string) => Promise<void>;
   onSignIn: () => void;
+  onSocialSignIn: (provider: "google" | "facebook") => Promise<void>;
 }
 
-export function SignUpScreen({ onBack, onSignUp, onSignIn }: SignUpScreenProps) {
+export function SignUpScreen({ onBack, onSignUp, onSignIn, onSocialSignIn }: SignUpScreenProps) {
   const [email, setEmail] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -20,6 +21,17 @@ export function SignUpScreen({ onBack, onSignUp, onSignIn }: SignUpScreenProps) 
     password?: string;
     terms?: string;
   }>({});
+
+  const getSignUpErrorMessage = (reason: unknown) => {
+    const message = reason instanceof Error ? reason.message : "";
+    if (/rate limit|too many requests|over_email_send_rate_limit/i.test(message)) {
+      return "Too many confirmation emails have been sent. Please wait a while and try again.";
+    }
+    if (/already registered|already exists|user_already_exists/i.test(message)) {
+      return "An account already exists for this email. Please sign in instead.";
+    }
+    return message || "Unable to create account. Please try again.";
+  };
 
   const validateForm = () => {
     const newErrors: typeof errors = {};
@@ -58,15 +70,20 @@ export function SignUpScreen({ onBack, onSignUp, onSignIn }: SignUpScreenProps) 
     if (validateForm()) {
       setSubmitting(true);
       try { await onSignUp(email.trim(), password, username.trim()); }
-      catch (reason) { setErrors((current) => ({ ...current, email: reason instanceof Error ? reason.message : "Unable to create account." })); }
+      catch (reason) { setErrors((current) => ({ ...current, email: getSignUpErrorMessage(reason) })); }
       finally { setSubmitting(false); }
     }
+  };
+  const handleSocialSignIn = async (provider: "google" | "facebook") => {
+    setSubmitting(true);
+    try { await onSocialSignIn(provider); }
+    catch (reason) { setErrors((current) => ({ ...current, email: reason instanceof Error ? reason.message : `Unable to continue with ${provider}.` })); setSubmitting(false); }
   };
 
   return (
     <div className="size-full bg-[#fcfcfd] flex flex-col">
       {/* Status Bar */}
-      <div className="h-[44px] bg-[#fcfcfd]" />
+      <div className="h-[max(env(safe-area-inset-top),8px)] bg-[#fcfcfd]" />
 
       {/* Header with Back Button */}
       <div className="px-[24px] py-[24px]">
@@ -237,8 +254,9 @@ export function SignUpScreen({ onBack, onSignUp, onSignIn }: SignUpScreenProps) 
         {/* Social Media */}
         <div className="flex items-center justify-center gap-[16px] mb-[24px]">
           <button
-            onClick={() => console.log("Facebook login")}
-            className="size-[46px] rounded-full bg-[#e5e7eb] flex items-center justify-center hover:bg-[#d2d6db] transition-colors"
+            onClick={() => handleSocialSignIn("facebook")}
+            disabled={submitting}
+            className="size-[46px] rounded-full bg-[#e5e7eb] flex items-center justify-center hover:bg-[#d2d6db] transition-colors disabled:opacity-60"
             aria-label="Sign up with Facebook"
           >
             <svg className="size-[24px]" viewBox="0 0 24 24" fill="none">
@@ -246,8 +264,9 @@ export function SignUpScreen({ onBack, onSignUp, onSignIn }: SignUpScreenProps) 
             </svg>
           </button>
           <button
-            onClick={() => console.log("Google login")}
-            className="size-[46px] rounded-full bg-[#e5e7eb] flex items-center justify-center hover:bg-[#d2d6db] transition-colors"
+            onClick={() => handleSocialSignIn("google")}
+            disabled={submitting}
+            className="size-[46px] rounded-full bg-[#e5e7eb] flex items-center justify-center hover:bg-[#d2d6db] transition-colors disabled:opacity-60"
             aria-label="Sign up with Google"
           >
             <svg className="size-[24px]" viewBox="0 0 24 24" fill="none">

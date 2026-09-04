@@ -8,7 +8,8 @@ export async function publishListing(userId: string, data: ListingData) {
     title: `${data.livingSetup.replaceAll("-", " ")} in ${data.locationDetails.area}`,
     description: data.description, country: data.locationDetails.country, city: data.locationDetails.city,
     area: data.locationDetails.area, address: data.locationDetails.address || null,
-    hide_address: data.locationDetails.hideAddress, rent: Number(data.rent), deposit: Number(data.deposit || 0),
+    latitude: data.locationDetails.latitude, longitude: data.locationDetails.longitude,
+    hide_address: data.locationDetails.hideAddress, rent: Number(data.rent), rent_period: data.rentPeriod, deposit: Number(data.deposit || 0),
     move_in_date: data.moveInDate, minimum_stay: data.minimumStay, ideal_for: data.idealFor,
     details: { space: data.spaceDetails, nearby: data.nearbyFacilities, roommates: data.existingRoommates }, status: "published",
   }).select("id").single();

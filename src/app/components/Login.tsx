@@ -7,9 +7,10 @@ interface LoginProps {
   onSignIn: (email: string, password: string) => Promise<void>;
   onSignUp: () => void;
   onForgotPassword?: () => void;
+  onSocialSignIn: (provider: "google" | "facebook") => Promise<void>;
 }
 
-export function Login({ onBack, onSignIn, onSignUp, onForgotPassword }: LoginProps) {
+export function Login({ onBack, onSignIn, onSignUp, onForgotPassword, onSocialSignIn }: LoginProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -24,11 +25,16 @@ export function Login({ onBack, onSignIn, onSignUp, onForgotPassword }: LoginPro
     catch (reason) { setError(reason instanceof Error ? reason.message : "Unable to sign in."); }
     finally { setSubmitting(false); }
   };
+  const handleSocialSignIn = async (provider: "google" | "facebook") => {
+    setSubmitting(true); setError("");
+    try { await onSocialSignIn(provider); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : `Unable to sign in with ${provider}.`); setSubmitting(false); }
+  };
 
   return (
     <div className="bg-[#fcfcfd] relative size-full flex flex-col">
       {/* Status Bar */}
-      <div className="h-[44px] bg-transparent" />
+      <div className="h-[max(env(safe-area-inset-top),8px)] bg-transparent" />
 
       {/* Back Button */}
       <div className="px-[24px] pt-[24px] pb-[24px]">
@@ -141,33 +147,21 @@ export function Login({ onBack, onSignIn, onSignUp, onForgotPassword }: LoginPro
           </p>
 
           {/* Social Media Buttons */}
-          <div className="flex gap-[16px]">
+          <div className="flex items-center justify-center gap-[16px]">
             {/* Facebook */}
-            <button className="size-[46px] rounded-full bg-[#e5e7eb] flex items-center justify-center hover:bg-[#d2d6db] transition-colors">
-              <svg className="w-[20px] h-[20px]" fill="none" viewBox="0 0 46 46">
-                <path 
-                  clipRule="evenodd" 
-                  d={svgPaths.p3f1d6180} 
-                  fill="#1976D2" 
-                  fillRule="evenodd" 
-                />
+            <button onClick={() => handleSocialSignIn("facebook")} disabled={submitting} aria-label="Sign in with Facebook" className="size-[46px] rounded-full bg-[#e5e7eb] flex shrink-0 items-center justify-center hover:bg-[#d2d6db] transition-colors disabled:opacity-60">
+              <svg className="size-[24px] block" viewBox="0 0 24 24" fill="none">
+                <path d="M24 12C24 5.37258 18.6274 0 12 0C5.37258 0 0 5.37258 0 12C0 17.9895 4.3882 22.954 10.125 23.8542V15.4688H7.07812V12H10.125V9.35625C10.125 6.34875 11.9166 4.6875 14.6576 4.6875C15.9701 4.6875 17.3438 4.92188 17.3438 4.92188V7.875H15.8306C14.34 7.875 13.875 8.80008 13.875 9.75V12H17.2031L16.6711 15.4688H13.875V23.8542C19.6118 22.954 24 17.9895 24 12Z" fill="#1976D2" />
               </svg>
             </button>
 
             {/* Google */}
-            <button className="size-[46px] rounded-full bg-[#e5e7eb] flex items-center justify-center hover:bg-[#d2d6db] transition-colors">
-              <svg className="w-[24px] h-[24px]" fill="none" viewBox="0 0 24 24">
-                <g clipPath="url(#clip0_google)">
-                  <path d={svgPaths.p1db44100} fill="#FBBB00" />
-                  <path d={svgPaths.p34479700} fill="#518EF8" />
-                  <path d={svgPaths.p19764b00} fill="#28B446" />
-                  <path d={svgPaths.p23bd0880} fill="#F14336" />
-                </g>
-                <defs>
-                  <clipPath id="clip0_google">
-                    <rect fill="white" height="24" width="24" />
-                  </clipPath>
-                </defs>
+            <button onClick={() => handleSocialSignIn("google")} disabled={submitting} aria-label="Sign in with Google" className="size-[46px] rounded-full border border-[#d2d6db] bg-white flex shrink-0 items-center justify-center hover:bg-[#f9fafb] transition-colors disabled:opacity-60">
+              <svg className="size-[23px] block shrink-0" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M23.745 12.27c0-.79-.07-1.54-.19-2.27h-11.3v4.28h6.47c-.29 1.48-1.14 2.73-2.4 3.58v3h3.86c2.26-2.09 3.56-5.17 3.56-8.59z" fill="#4285F4"/>
+                <path d="M12.255 24c3.24 0 5.95-1.08 7.93-2.91l-3.86-3c-1.08.72-2.45 1.16-4.07 1.16-3.13 0-5.78-2.11-6.73-4.96h-3.98v3.09C3.515 21.3 7.565 24 12.255 24z" fill="#34A853"/>
+                <path d="M5.525 14.29c-.25-.72-.38-1.49-.38-2.29s.14-1.57.38-2.29V6.62h-3.98a11.86 11.86 0 000 10.76l3.98-3.09z" fill="#FBBC05"/>
+                <path d="M12.255 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C18.205 1.19 15.495 0 12.255 0c-4.69 0-8.74 2.7-10.71 6.62l3.98 3.09c.95-2.85 3.6-4.96 6.73-4.96z" fill="#EA4335"/>
               </svg>
             </button>
           </div>

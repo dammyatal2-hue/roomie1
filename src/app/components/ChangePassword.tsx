@@ -21,7 +21,7 @@ export function ChangePassword({ onBack, onChangePassword }: ChangePasswordProps
   return (
     <div className="bg-[#fcfcfd] relative size-full flex flex-col">
       {/* Status Bar */}
-      <div className="h-[44px] bg-transparent" />
+      <div className="h-[max(env(safe-area-inset-top),8px)] bg-transparent" />
 
       {/* Back Button */}
       <div className="px-[24px] pt-[24px] pb-[24px]">

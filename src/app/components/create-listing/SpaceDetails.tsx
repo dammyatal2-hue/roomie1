@@ -19,7 +19,8 @@ export function SpaceDetails({ onNext }: SpaceDetailsProps) {
   };
 
   // Determine which fields to show based on living setup
-  const showBedrooms = !listingData.livingSetup?.includes("private-room");
+  // Total bedrooms is required for every home, including private-room listings.
+  const showBedrooms = true;
   const showPrivateBathroom = listingData.livingSetup?.includes("private-room");
   const showUtilities = true; // Show for all types
 
@@ -86,6 +87,7 @@ export function SpaceDetails({ onNext }: SpaceDetailsProps) {
           </label>
           <div className="flex gap-[12px]">
             <button
+              type="button"
               onClick={() => handleChange("furnished", true)}
               className={`flex-1 h-[48px] rounded-[8px] border-[2px] font-['Inter:Medium',sans-serif] font-medium text-[14px] transition-all duration-200 ${
                 localDetails.furnished === true
@@ -96,6 +98,7 @@ export function SpaceDetails({ onNext }: SpaceDetailsProps) {
               Yes
             </button>
             <button
+              type="button"
               onClick={() => handleChange("furnished", false)}
               className={`flex-1 h-[48px] rounded-[8px] border-[2px] font-['Inter:Medium',sans-serif] font-medium text-[14px] transition-all duration-200 ${
                 localDetails.furnished === false
@@ -116,6 +119,7 @@ export function SpaceDetails({ onNext }: SpaceDetailsProps) {
             </label>
             <div className="flex gap-[12px]">
               <button
+                type="button"
                 onClick={() => handleChange("privateBathroom", true)}
                 className={`flex-1 h-[48px] rounded-[8px] border-[2px] font-['Inter:Medium',sans-serif] font-medium text-[14px] transition-all duration-200 ${
                   localDetails.privateBathroom === true
@@ -126,6 +130,7 @@ export function SpaceDetails({ onNext }: SpaceDetailsProps) {
                 Yes
               </button>
               <button
+                type="button"
                 onClick={() => handleChange("privateBathroom", false)}
                 className={`flex-1 h-[48px] rounded-[8px] border-[2px] font-['Inter:Medium',sans-serif] font-medium text-[14px] transition-all duration-200 ${
                   localDetails.privateBathroom === false
@@ -146,7 +151,8 @@ export function SpaceDetails({ onNext }: SpaceDetailsProps) {
               Utilities Included
             </label>
             <div className="flex gap-[12px]">
-              <button
+            <button
+              type="button"
                 onClick={() => handleChange("utilitiesIncluded", true)}
                 className={`flex-1 h-[48px] rounded-[8px] border-[2px] font-['Inter:Medium',sans-serif] font-medium text-[14px] transition-all duration-200 ${
                   localDetails.utilitiesIncluded === true
@@ -156,7 +162,8 @@ export function SpaceDetails({ onNext }: SpaceDetailsProps) {
               >
                 Yes
               </button>
-              <button
+            <button
+              type="button"
                 onClick={() => handleChange("utilitiesIncluded", false)}
                 className={`flex-1 h-[48px] rounded-[8px] border-[2px] font-['Inter:Medium',sans-serif] font-medium text-[14px] transition-all duration-200 ${
                   localDetails.utilitiesIncluded === false
@@ -173,6 +180,7 @@ export function SpaceDetails({ onNext }: SpaceDetailsProps) {
 
       {/* Continue Button */}
       <button
+        type="button"
         onClick={handleContinue}
         disabled={!canProceed}
         className={`w-full h-[52px] rounded-[8px] font-['Inter:Semi_Bold',sans-serif] font-semibold text-[16px] leading-[24px] transition-all duration-200 ${

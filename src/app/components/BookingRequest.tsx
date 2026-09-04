@@ -30,7 +30,7 @@ interface BookingRequestProps {
     lengthOfStay: string;
     budgetConfirmed: boolean;
     introMessage: string;
-  }) => void;
+  }) => Promise<void>;
 }
 
 export function BookingRequest({ 
@@ -44,6 +44,8 @@ export function BookingRequest({
   const [lengthOfStay, setLengthOfStay] = useState("");
   const [budgetConfirmed, setBudgetConfirmed] = useState(false);
   const [introMessage, setIntroMessage] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState("");
 
   // Demo data
   const demoListing = {
@@ -81,30 +83,28 @@ export function BookingRequest({
   // Check if form is valid
   const isFormValid = moveInDate && lengthOfStay && budgetConfirmed;
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (isFormValid && onSendRequest) {
-      onSendRequest({
-        moveInDate,
-        lengthOfStay,
-        budgetConfirmed,
-        introMessage
-      });
+      setSubmitting(true); setSubmitError("");
+      try { await onSendRequest({ moveInDate, lengthOfStay, budgetConfirmed, introMessage }); }
+      catch (reason) { setSubmitError(reason instanceof Error ? reason.message : "Unable to send request."); setSubmitting(false); }
     }
   };
 
   return (
     <div className="size-full flex flex-col bg-[#fafafa] overflow-auto">
       {/* Status Bar Spacer */}
-      <div className="h-[44px] bg-white" />
+      <div className="h-[max(env(safe-area-inset-top),8px)] bg-white" />
 
       {/* Header */}
-      <div className="bg-white px-[20px] py-[16px] border-b border-[#e5e7eb] flex items-center gap-[16px]">
+      <div className="bg-white px-5 py-3 border-b border-[#e5e7eb] grid grid-cols-[40px_1fr_40px] items-center">
         <button onClick={onBack} className="flex items-center justify-center">
           <ArrowLeft size={24} className="text-[#1f2a37]" />
         </button>
-        <h1 className="font-['Inter:Semi_Bold',sans-serif] font-semibold text-[18px] leading-[28px] text-[#1f2a37]">
+        <h1 className="font-['Inter:Semi_Bold',sans-serif] font-semibold text-[17px] leading-6 text-[#1f2a37] text-center">
           {isShared ? "Request to Join" : "Rental Request"}
         </h1>
+        <div aria-hidden="true" />
       </div>
 
       {/* Content */}
@@ -313,7 +313,7 @@ export function BookingRequest({
       <div className="sticky bottom-0 bg-white border-t border-[#e5e7eb] px-[20px] py-[16px]">
         <button
           onClick={handleSubmit}
-          disabled={!isFormValid}
+          disabled={!isFormValid || submitting}
           className={`
             w-full h-[52px] rounded-[12px] font-['Inter:Semi_Bold',sans-serif] font-semibold text-[16px] leading-[20px] transition-all
             ${isFormValid 
@@ -322,8 +322,9 @@ export function BookingRequest({
             }
           `}
         >
-          Send Request
+          {submitting ? "Sending..." : "Send Request"}
         </button>
+        {submitError && <p role="alert" className="mt-2 text-center text-sm text-[#f04438]">{submitError}</p>}
         <p className="text-center text-[12px] text-[#6b7280] mt-[12px]">
           {isShared 
             ? "Your request will be reviewed by the current roommates" 

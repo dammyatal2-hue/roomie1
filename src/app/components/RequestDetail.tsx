@@ -1,5 +1,7 @@
 import { ArrowLeft, MapPin, Home, Calendar, Clock, Check, X, MessageCircle } from "lucide-react";
 import { ImageWithFallback } from "@/app/components/figma/ImageWithFallback";
+import { useEffect, useState } from "react";
+import { supabase } from "../../lib/supabase";
 
 type RequestStatus = "pending" | "accepted" | "declined";
 
@@ -63,7 +65,27 @@ export function RequestDetail({
     dateSent: "January 17, 2026",
   };
 
-  const data = requestType === "received" ? receivedRequestData : sentRequestData;
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  useEffect(() => {
+    if (!requestId) return;
+    setLoading(true); setLoadError("");
+    supabase.from("booking_requests").select("id,status,message,created_at,listings(title,living_setup,city,area,rent,move_in_date,minimum_stay,listing_photos(storage_path)),requester:profiles!booking_requests_requester_id_fkey(id,username,full_name,avatar_url,occupation,bio,date_of_birth,preferences(answers)),owner:profiles!booking_requests_owner_id_fkey(id,username,full_name,avatar_url,occupation,bio,date_of_birth,preferences(answers))").eq("id", requestId).maybeSingle().then(({ data: row, error }) => {
+      if (error || !row) { setLoadError(error?.message || "Request not found."); return; }
+      const listing: any = row.listings; const person: any = requestType === "received" ? row.requester : row.owner;
+      const path = listing?.listing_photos?.[0]?.storage_path;
+      const message = row.message ?? "";
+      const preferredMoveIn = message.match(/Preferred move-in:\s*([^\n]+)/i)?.[1]?.trim();
+      const requestedStay = message.match(/Length of stay:\s*([^\n]+)/i)?.[1]?.trim();
+      const introMessage = message.split(/\nPreferred move-in:/i)[0].trim();
+      const birthDate = person?.date_of_birth ? new Date(person.date_of_birth) : null;
+      const age = birthDate ? Math.floor((Date.now() - birthDate.getTime()) / 31557600000) : null;
+      const answers = person?.preferences?.[0]?.answers ?? {};
+      const lifestyleTags = Array.isArray(answers.personalityTags) ? answers.personalityTags : [answers.cleanliness, answers.noiseLevel, answers.sleepRoutine, answers.workStyle].filter(Boolean).map((value: string) => value.replaceAll("_", " "));
+      setData({ id: row.id, status: row.status, listingTitle: listing?.title ?? "Listing", listingImage: path ? supabase.storage.from("listing-photos").getPublicUrl(path).data.publicUrl : undefined, livingSetup: listing?.living_setup ?? "", city: listing?.city ?? "", neighborhood: listing?.area ?? "", price: String(listing?.rent ?? ""), moveInDate: preferredMoveIn || listing?.move_in_date || "Not specified", lengthOfStay: requestedStay || listing?.minimum_stay || "Not specified", introMessage, requesterName: person?.full_name || person?.username || "Roomie member", hostName: person?.full_name || person?.username || "Roomie member", requesterPhoto: person?.avatar_url, hostPhoto: person?.avatar_url, requesterAge: age ? String(age) : "", hostAge: age ? String(age) : "", requesterOccupation: person?.occupation || "", hostOccupation: person?.occupation || "", requesterBio: person?.bio || "", lifestyleTags, compatibilityScore: 0, timestamp: new Date(row.created_at).toLocaleString() });
+    }).finally(() => setLoading(false));
+  }, [requestId, requestType]);
   const isReceived = requestType === "received";
 
   const getStatusBadge = (status: RequestStatus) => {
@@ -86,19 +108,23 @@ export function RequestDetail({
     );
   };
 
+  if (loading) return <div className="min-h-screen grid place-items-center text-sm text-[#6b7280]">Loading request…</div>;
+  if (loadError || !data) return <div className="min-h-screen grid place-items-center p-6 text-center"><div><p className="text-sm text-red-600">{loadError || "Unable to load request."}</p><button onClick={onBack} className="mt-4 px-5 py-2.5 rounded-lg bg-[#fe456a] text-white">Go back</button></div></div>;
+
   return (
     <div className="size-full flex flex-col bg-[#fafafa] overflow-auto">
       {/* Status Bar Spacer */}
-      <div className="h-[44px] bg-white" />
+      <div className="h-[max(env(safe-area-inset-top),8px)] bg-white" />
 
       {/* Header */}
-      <div className="bg-white px-[20px] py-[16px] border-b border-[#e5e7eb] flex items-center gap-[16px]">
+      <div className="bg-white px-5 py-3 border-b border-[#e5e7eb] grid grid-cols-[40px_1fr_40px] items-center">
         <button onClick={onBack} className="flex items-center justify-center">
           <ArrowLeft size={24} className="text-[#1f2a37]" />
         </button>
-        <h1 className="font-['Inter:Semi_Bold',sans-serif] font-semibold text-[18px] leading-[28px] text-[#1f2a37]">
+        <h1 className="font-['Inter:Semi_Bold',sans-serif] font-semibold text-[17px] leading-6 text-[#1f2a37] text-center">
           Request Details
         </h1>
+        <div aria-hidden="true" />
       </div>
 
       {/* Content */}
@@ -108,7 +134,7 @@ export function RequestDetail({
           {getStatusBadge(data.status)}
           <div className="flex items-center gap-[4px] text-[13px] text-[#9da4ae]">
             <Clock size={14} />
-            <span>{isReceived ? receivedRequestData.timestamp : `Sent ${sentRequestData.dateSent}`}</span>
+            <span>{isReceived ? data.timestamp : `Sent ${data.timestamp}`}</span>
           </div>
         </div>
 
@@ -142,7 +168,7 @@ export function RequestDetail({
 
             <div className="flex items-center gap-[8px] text-[14px] text-[#6b7280] mb-[12px]">
               <MapPin size={16} />
-              <span>{isReceived ? receivedRequestData.neighborhood : sentRequestData.neighborhood}, {data.city}</span>
+              <span>{[data.neighborhood, data.city].filter(Boolean).join(", ")}</span>
             </div>
 
             <div className="pt-[12px] border-t border-[#e5e7eb]">
@@ -163,15 +189,15 @@ export function RequestDetail({
           <div className="flex items-start gap-[12px] mb-[16px]">
             {/* Profile Photo */}
             <div className="w-[64px] h-[64px] rounded-full bg-gray-200 flex items-center justify-center flex-shrink-0">
-              {(isReceived ? receivedRequestData.requesterPhoto : sentRequestData.hostPhoto) ? (
+              {(isReceived ? data.requesterPhoto : data.hostPhoto) ? (
                 <ImageWithFallback
-                  src={(isReceived ? receivedRequestData.requesterPhoto : sentRequestData.hostPhoto)!}
-                  alt={isReceived ? receivedRequestData.requesterName : sentRequestData.hostName}
+                  src={(isReceived ? data.requesterPhoto : data.hostPhoto)!}
+                  alt={isReceived ? data.requesterName : data.hostName}
                   className="w-full h-full rounded-full object-cover"
                 />
               ) : (
                 <span className="font-semibold text-[24px] text-gray-600 uppercase">
-                  {(isReceived ? receivedRequestData.requesterName : (sentRequestData.hostName || "H")).charAt(0)}
+                  {(isReceived ? data.requesterName : (data.hostName || "H")).charAt(0)}
                 </span>
               )}
             </div>
@@ -179,18 +205,18 @@ export function RequestDetail({
             {/* Info */}
             <div className="flex-1">
               <h4 className="font-['Inter:Semi_Bold',sans-serif] font-semibold text-[17px] leading-[22px] text-[#1f2a37] mb-[4px]">
-                {isReceived ? receivedRequestData.requesterName : sentRequestData.hostName}
+                {isReceived ? data.requesterName : data.hostName}
               </h4>
               <p className="text-[14px] text-[#6b7280] mb-[4px]">
-                {isReceived ? receivedRequestData.requesterAge : sentRequestData.hostAge} · {isReceived ? receivedRequestData.requesterOccupation : sentRequestData.hostOccupation}
+                {[isReceived ? data.requesterAge : data.hostAge, isReceived ? data.requesterOccupation : data.hostOccupation].filter(Boolean).join(" · ") || "Roomie member"}
               </p>
             </div>
           </div>
 
           {/* Lifestyle Tags - only for received requests */}
-          {isReceived && receivedRequestData.lifestyleTags && (
+          {isReceived && data.lifestyleTags?.length > 0 && (
             <div className="flex flex-wrap gap-[8px] mb-[16px]">
-              {receivedRequestData.lifestyleTags.map((tag) => (
+              {data.lifestyleTags.map((tag: string) => (
                 <span
                   key={tag}
                   className="px-[12px] py-[6px] bg-[#f3f4f6] text-[#4b5563] text-[13px] rounded-full"
@@ -202,9 +228,9 @@ export function RequestDetail({
           )}
 
           {/* Bio - only for received requests */}
-          {isReceived && receivedRequestData.requesterBio && (
+          {isReceived && data.requesterBio && (
             <p className="text-[14px] text-[#6b7280] leading-[20px] mb-[16px]">
-              {receivedRequestData.requesterBio}
+              {data.requesterBio}
             </p>
           )}
 
@@ -257,23 +283,17 @@ export function RequestDetail({
             </div>
 
             {/* Budget Confirmed - only for received */}
-            {isReceived && receivedRequestData.budgetConfirmed && (
-              <div className="flex items-center gap-[8px] px-[12px] py-[8px] bg-[#D1FAE5]/50 border border-[#A7F3D0] rounded-[8px]">
-                <Check size={16} className="text-[#065F46]" />
-                <span className="text-[13px] text-[#065F46]">Budget confirmed</span>
-              </div>
-            )}
           </div>
         </div>
 
         {/* Intro Message - only for received */}
-        {isReceived && receivedRequestData.introMessage && (
+        {isReceived && data.introMessage && (
           <div className="mx-[20px] mt-[16px] bg-white rounded-[16px] border border-[#e5e7eb] p-[20px]">
             <h3 className="font-['Inter:Semi_Bold',sans-serif] font-semibold text-[16px] leading-[24px] text-[#1f2a37] mb-[12px]">
-              Message from {receivedRequestData.requesterName}
+              Message from {data.requesterName}
             </h3>
             <p className="text-[14px] text-[#6b7280] leading-[22px]">
-              "{receivedRequestData.introMessage}"
+              "{data.introMessage}"
             </p>
           </div>
         )}

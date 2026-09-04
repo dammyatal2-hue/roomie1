@@ -25,20 +25,20 @@ function CreateListingFlow({ onBack }: CreateListingProps) {
   const [currentStep, setCurrentStep] = useState(1);
 
   const handleNext = () => {
-    setCurrentStep(currentStep + 1);
+    setCurrentStep((step) => step + 1);
   };
 
   const handleBack = () => {
     if (currentStep > 1) {
-      setCurrentStep(currentStep - 1);
+      setCurrentStep((step) => step - 1);
     } else {
       onBack();
     }
   };
 
-  const handlePublish = async () => {
+  const handlePublish = async (photos: File[], description: string) => {
     if (!user) return toast.error("Sign in to publish a listing.");
-    try { await publishListing(user.id, listingData); resetListing(); toast.success("Listing published"); onBack(); }
+    try { await publishListing(user.id, { ...listingData, photos, description }); resetListing(); toast.success("Listing published"); onBack(); }
     catch (reason) { toast.error(reason instanceof Error ? reason.message : "Unable to publish listing"); }
   };
 
@@ -51,7 +51,7 @@ function CreateListingFlow({ onBack }: CreateListingProps) {
       {/* Header */}
       <div className="flex-none">
         {/* Status Bar Spacer */}
-        <div className="h-[44px]" />
+        <div className="h-[max(env(safe-area-inset-top),8px)]" />
 
         {/* Top Bar */}
         <div className="px-[24px] py-[16px] flex items-center justify-between">

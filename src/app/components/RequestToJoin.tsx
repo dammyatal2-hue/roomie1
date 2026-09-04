@@ -100,7 +100,7 @@ export function RequestToJoin({ onBack, listing, requestStatus, onStartChat, onF
   return (
     <div className="size-full flex flex-col bg-[#fafafa]">
       {/* Status Bar Spacer */}
-      <div className="h-[44px] bg-white" />
+      <div className="h-[max(env(safe-area-inset-top),8px)] bg-white" />
 
       {/* Header */}
       <div className="bg-white px-[24px] py-[16px] border-b border-[#e5e7eb]">

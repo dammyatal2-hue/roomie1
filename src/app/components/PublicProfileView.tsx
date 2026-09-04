@@ -1,6 +1,9 @@
+import { useEffect, useState } from "react";
 import { ArrowLeft, MapPin, User, MessageCircle, UserPlus, Clock } from "lucide-react";
+import { supabase } from "../../lib/supabase";
 
 interface PublicProfileViewProps {
+  profileId?: string | null;
   onBack: () => void;
   connectionStatus?: "pending" | "matched" | "not-connected";
   onChat?: () => void;
@@ -8,23 +11,46 @@ interface PublicProfileViewProps {
 }
 
 export function PublicProfileView({ 
+  profileId,
   onBack, 
   connectionStatus = "not-connected",
   onChat,
   onSendRequest,
 }: PublicProfileViewProps) {
-  // Demo data
-  const profileData = {
+  const [loading, setLoading] = useState(Boolean(profileId));
+  const [loadError, setLoadError] = useState("");
+  const [galleryPhotos, setGalleryPhotos] = useState<string[]>([]);
+  const [profileData, setProfileData] = useState({
     photoUrl: null,
-    name: "Alex Rivera",
-    ageRange: "25-29",
-    occupation: "Software Engineer",
-    location: "Kigali, Rwanda",
-    bio: "Love cooking and exploring new cafes. Usually working from home during the week. Looking for a clean, quiet place with friendly roommates who respect personal space but also enjoy occasional hangouts.",
-    lifestyleTags: ["Clean", "Quiet", "WFH", "Foodie", "Early Bird"],
-    lookingFor: "Roommate",
-    preferredMoveIn: "Flexible",
-  };
+    name: "Roomie member",
+    ageRange: "",
+    occupation: "",
+    gender: "",
+    location: "Location not added",
+    bio: "No bio added yet.",
+    lifestyleTags: [] as string[],
+    lookingFor: "",
+    preferredMoveIn: "",
+  });
+
+  useEffect(() => {
+    if (!profileId) { setLoading(false); return; }
+    setLoading(true);
+    setLoadError("");
+    Promise.all([
+      supabase.from("profiles").select("*").eq("id", profileId).maybeSingle(),
+      supabase.from("preferences").select("answers").eq("user_id", profileId).maybeSingle(),
+      supabase.from("profile_photos").select("storage_path").eq("user_id", profileId).order("position"),
+    ]).then(([profileResult, preferenceResult, galleryResult]) => {
+      if (profileResult.error || !profileResult.data) throw profileResult.error ?? new Error("Profile not found.");
+      const row = profileResult.data as any;
+      const answers = (preferenceResult.data?.answers ?? {}) as Record<string, any>;
+      const age = row.date_of_birth ? Math.floor((Date.now() - new Date(row.date_of_birth).getTime()) / 31557600000) : null;
+      const tags = Array.isArray(answers.personalityTags) ? answers.personalityTags : [answers.cleanliness, answers.noiseLevel, answers.sleepRoutine, answers.workStyle].filter(Boolean).map((value) => String(value).replaceAll("_", " "));
+      setProfileData({ photoUrl: row.avatar_url, name: row.full_name || row.username || "Roomie member", ageRange: age ? `${age} years old` : "", occupation: row.occupation || "", gender: row.gender && row.gender !== "prefer-not-to-say" ? row.gender : "", location: [row.city, row.country].filter(Boolean).join(", ") || "Location not added", bio: row.bio || "No bio added yet.", lifestyleTags: tags, lookingFor: typeof answers.lookingFor === "string" ? answers.lookingFor : "", preferredMoveIn: typeof answers.preferredMoveIn === "string" ? answers.preferredMoveIn : "" });
+      setGalleryPhotos((galleryResult.data ?? []).map((photo) => supabase.storage.from("avatars").getPublicUrl(photo.storage_path).data.publicUrl));
+    }).catch((reason) => setLoadError(reason instanceof Error ? reason.message : "Unable to load profile.")).finally(() => setLoading(false));
+  }, [profileId]);
 
   const getStatusBadge = () => {
     switch (connectionStatus) {
@@ -54,10 +80,13 @@ export function PublicProfileView({
 
   const statusBadge = getStatusBadge();
 
+  if (loading) return <div className="min-h-screen grid place-items-center text-sm text-[#6b7280]">Loading profile…</div>;
+  if (loadError) return <div className="min-h-screen grid place-items-center p-6 text-center"><div><p className="text-sm text-red-600">{loadError}</p><button onClick={onBack} className="mt-4 px-5 py-2.5 rounded-lg bg-[#fe456a] text-white">Go back</button></div></div>;
+
   return (
     <div className="size-full flex flex-col bg-white overflow-auto">
       {/* Status Bar Spacer */}
-      <div className="h-[44px]" />
+      <div className="h-[max(env(safe-area-inset-top),8px)]" />
 
       {/* Header */}
       <div className="sticky top-0 z-10 bg-white/95 backdrop-blur-sm border-b border-[#e5e7eb]">
@@ -81,9 +110,7 @@ export function PublicProfileView({
         <div className="px-[24px] pt-[24px]">
           {/* Avatar */}
           <div className="flex justify-center mb-[16px]">
-            <div className="w-[120px] h-[120px] rounded-full bg-gradient-to-br from-[#fe456a] to-[#ff758f] flex items-center justify-center">
-              <User className="w-[60px] h-[60px] text-white" strokeWidth={2} />
-            </div>
+            <img src={profileData.photoUrl || `https://api.dicebear.com/9.x/initials/svg?seed=${encodeURIComponent(profileData.name)}&backgroundColor=fe456a&fontFamily=Arial`} alt={profileData.name} className="w-[120px] h-[120px] rounded-full object-cover" />
           </div>
 
           {/* Name & Basic Info */}
@@ -100,6 +127,7 @@ export function PublicProfileView({
                 {profileData.location}
               </p>
             </div>
+            {profileData.gender && <p className="mt-1 text-[13px] text-[#6b7280] capitalize">{profileData.gender}</p>}
           </div>
 
           {/* Status Badge */}
@@ -111,6 +139,8 @@ export function PublicProfileView({
             </div>
           </div>
         </div>
+
+        {galleryPhotos.length > 0 && <div className="px-6 pt-2"><h2 className="text-base font-semibold text-[#1f2a37] mb-3">Photos</h2><div className="flex gap-3 overflow-x-auto pb-2">{galleryPhotos.map((url, index) => <img key={url} src={url} alt={`${profileData.name} photo ${index + 1}`} className="flex-none w-44 h-56 rounded-2xl object-cover"/>)}</div></div>}
 
         {/* Lifestyle Tags */}
         {profileData.lifestyleTags.length > 0 && (

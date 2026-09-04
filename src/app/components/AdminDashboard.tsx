@@ -1,42 +1,13 @@
-import { useState } from "react";
-import { AdminSidebar } from "./AdminSidebar";
-import { AdminTopBar } from "./AdminTopBar";
-import { AdminOverview } from "./AdminOverview";
-import { AdminListings } from "./AdminListings";
-import { AdminUsers } from "./AdminUsers";
-import { AdminCities } from "./AdminCities";
-import { AdminReports } from "./AdminReports";
-import { AdminMatches } from "./AdminMatches";
-import { AdminSettings } from "./AdminSettings";
+import { useEffect, useState } from "react";
+import { ArrowLeft, Users, Home, Send, MapPin } from "lucide-react";
+import { supabase } from "../../lib/supabase";
 
-export type AdminView = "dashboard" | "listings" | "users" | "cities" | "reports" | "matches" | "settings";
-
-interface AdminDashboardProps {
-  onExit?: () => void;
-}
-
-export function AdminDashboard({ onExit }: AdminDashboardProps) {
-  const [activeView, setActiveView] = useState<AdminView>("dashboard");
-
-  return (
-    <div className="flex h-screen bg-gray-50">
-      {/* Sidebar */}
-      <AdminSidebar activeView={activeView} onViewChange={setActiveView} />
-
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <AdminTopBar onExit={onExit} />
-        
-        <main className="flex-1 overflow-y-auto">
-          {activeView === "dashboard" && <AdminOverview />}
-          {activeView === "listings" && <AdminListings />}
-          {activeView === "users" && <AdminUsers />}
-          {activeView === "cities" && <AdminCities />}
-          {activeView === "reports" && <AdminReports />}
-          {activeView === "matches" && <AdminMatches />}
-          {activeView === "settings" && <AdminSettings />}
-        </main>
-      </div>
-    </div>
-  );
+type View="overview"|"users"|"listings"|"requests";
+export function AdminDashboard({onExit}:{onExit?:()=>void}) {
+  const [view,setView]=useState<View>("overview"); const [profiles,setProfiles]=useState<any[]>([]); const [listings,setListings]=useState<any[]>([]); const [requests,setRequests]=useState<any[]>([]); const [loading,setLoading]=useState(true);
+  const load=async()=>{setLoading(true);const [p,l,r]=await Promise.all([supabase.from("profiles").select("id,username,full_name,role,city,country,created_at").order("created_at",{ascending:false}),supabase.from("listings").select("id,title,status,city,country,rent,created_at,profiles(username)").order("created_at",{ascending:false}),supabase.from("booking_requests").select("id,status,created_at,listings(title),requester:profiles!booking_requests_requester_id_fkey(username)").order("created_at",{ascending:false})]);setProfiles(p.data??[]);setListings(l.data??[]);setRequests(r.data??[]);setLoading(false);};
+  useEffect(()=>{load();},[]);
+  const setListingStatus=async(id:string,status:"published"|"archived")=>{const {error}=await supabase.from("listings").update({status}).eq("id",id);if(!error)setListings(rows=>rows.map(row=>row.id===id?{...row,status}:row));};
+  const cities=new Set(listings.map(row=>`${row.city}, ${row.country}`)); const stats=[{label:"Users",value:profiles.length,icon:Users},{label:"Published listings",value:listings.filter(x=>x.status==="published").length,icon:Home},{label:"Booking requests",value:requests.length,icon:Send},{label:"Cities",value:cities.size,icon:MapPin}];
+  return <div className="min-h-screen bg-gray-50"><header className="sticky top-0 z-10 bg-white border-b px-4 sm:px-6 py-4 flex items-center gap-4"><button onClick={onExit}><ArrowLeft/></button><div><h1 className="font-semibold text-lg">Roomie Admin</h1><p className="text-xs text-gray-500">Live Supabase data</p></div></header><nav className="bg-white border-b px-4 overflow-x-auto flex gap-2 py-2">{(["overview","users","listings","requests"] as View[]).map(item=><button key={item} onClick={()=>setView(item)} className={`px-4 py-2 rounded-lg text-sm capitalize whitespace-nowrap ${view===item?"bg-[#fe456a] text-white":"bg-gray-100"}`}>{item}</button>)}</nav><main className="p-4 sm:p-6 max-w-7xl mx-auto">{loading?<p className="py-20 text-center text-gray-500">Loading admin data…</p>:view==="overview"?<div className="grid grid-cols-2 lg:grid-cols-4 gap-4">{stats.map(({label,value,icon:Icon})=><div key={label} className="bg-white border rounded-xl p-5"><Icon className="text-[#fe456a] mb-4"/><p className="text-3xl font-bold">{value}</p><p className="text-sm text-gray-500 mt-1">{label}</p></div>)}</div>:view==="users"?<div className="space-y-3">{profiles.map(p=><div key={p.id} className="bg-white border rounded-xl p-4 flex justify-between"><div><p className="font-medium">{p.full_name||p.username}</p><p className="text-sm text-gray-500">{p.city||"No city"}, {p.country||"No country"}</p></div><span className="text-xs h-fit px-2 py-1 rounded-full bg-gray-100">{p.role}</span></div>)}</div>:view==="listings"?<div className="space-y-3">{listings.map(l=><div key={l.id} className="bg-white border rounded-xl p-4 sm:flex justify-between gap-4"><div><p className="font-medium">{l.title}</p><p className="text-sm text-gray-500">{l.city}, {l.country} · {l.profiles?.username}</p></div><div className="flex items-center gap-2 mt-3 sm:mt-0"><span className="text-xs">{l.status}</span>{l.status==="published"?<button onClick={()=>setListingStatus(l.id,"archived")} className="px-3 py-2 text-xs rounded-lg bg-red-50 text-red-600">Archive</button>:<button onClick={()=>setListingStatus(l.id,"published")} className="px-3 py-2 text-xs rounded-lg bg-green-50 text-green-700">Publish</button>}</div></div>)}</div>:<div className="space-y-3">{requests.map(r=><div key={r.id} className="bg-white border rounded-xl p-4"><div className="flex justify-between"><p className="font-medium">{r.listings?.title||"Listing"}</p><span className="text-xs capitalize">{r.status}</span></div><p className="text-sm text-gray-500 mt-1">Requested by {r.requester?.username||"User"} · {new Date(r.created_at).toLocaleDateString()}</p></div>)}</div>}</main></div>;
 }

@@ -16,7 +16,7 @@ export function RequestAccepted({
   return (
     <div className="size-full flex flex-col bg-[#fafafa]">
       {/* Status Bar Spacer */}
-      <div className="h-[44px] bg-white" />
+      <div className="h-[max(env(safe-area-inset-top),8px)] bg-white" />
 
       {/* Content */}
       <div className="flex-1 flex flex-col items-center justify-center px-[24px] py-[48px]">

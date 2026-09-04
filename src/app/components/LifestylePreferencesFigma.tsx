@@ -1,5 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowLeft, Sparkles, Volume2, Moon, Briefcase } from "lucide-react";
+import { toast } from "sonner";
+import { supabase } from "../../lib/supabase";
+import { useAuth } from "../auth/AuthProvider";
 
 interface ToggleProps {
   label: string;
@@ -97,6 +100,9 @@ interface LifestylePreferencesFigmaProps {
 }
 
 export function LifestylePreferencesFigma({ onBack, onComplete }: LifestylePreferencesFigmaProps) {
+  const { user } = useAuth();
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
   // Living Habits
   const [cleanliness, setCleanliness] = useState<string | null>(null);
   const [noiseLevel, setNoiseLevel] = useState<string | null>(null);
@@ -126,8 +132,28 @@ export function LifestylePreferencesFigma({ onBack, onComplete }: LifestylePrefe
     }
   };
 
-  const handleContinue = () => {
-    console.log("Preferences saved:", {
+  useEffect(() => {
+    if (!user) return;
+    supabase.from("preferences").select("answers").eq("user_id", user.id).maybeSingle().then(({ data }) => {
+      const answers = (data?.answers ?? {}) as Record<string, any>;
+      setCleanliness(answers.cleanliness ?? null); setNoiseLevel(answers.noiseLevel ?? null);
+      setSleepRoutine(answers.sleepRoutine ?? null); setWorkStyle(answers.workStyle ?? null);
+      setComfortableWithVisitors(Boolean(answers.comfortableWithVisitors)); setComfortableWithPets(Boolean(answers.comfortableWithPets));
+      setSmokingAllowed(Boolean(answers.smokingAllowed)); setShareGroceries(Boolean(answers.shareGroceries)); setShareCooking(Boolean(answers.shareCooking));
+      setPersonalityTags(Array.isArray(answers.personalityTags) ? answers.personalityTags : []);
+      setNoSmoking(Boolean(answers.noSmoking)); setNoPets(Boolean(answers.noPets)); setNoFrequentVisitors(Boolean(answers.noFrequentVisitors));
+    });
+  }, [user]);
+
+  const handleContinue = async () => {
+    if (!user) {
+      setSaveError("Your session has expired. Please sign in again.");
+      return;
+    }
+    setSaving(true);
+    setSaveError("");
+    const answers = {
+      completed: true,
       cleanliness,
       noiseLevel,
       sleepRoutine,
@@ -141,8 +167,24 @@ export function LifestylePreferencesFigma({ onBack, onComplete }: LifestylePrefe
       noSmoking,
       noPets,
       noFrequentVisitors,
-    });
-    onComplete?.();
+    };
+    try {
+      const { error } = await supabase
+        .from("preferences")
+        .upsert(
+          { user_id: user.id, answers, updated_at: new Date().toISOString() },
+          { onConflict: "user_id" },
+        );
+      if (error) throw error;
+      toast.success("Lifestyle preferences saved");
+      onComplete?.();
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : "Unable to save your preferences. Please try again.";
+      setSaveError(message);
+      toast.error(message);
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -155,13 +197,6 @@ export function LifestylePreferencesFigma({ onBack, onComplete }: LifestylePrefe
               <ArrowLeft className="w-[24px] h-[24px] text-[#1f2a37]" />
             </button>
           )}
-          
-          {/* Progress Indicator */}
-          <div className="flex gap-2 mb-4">
-            <div className="flex-1 h-[4px] bg-[#fe456a] rounded-full" />
-            <div className="flex-1 h-[4px] bg-[#fe456a] rounded-full" />
-            <div className="flex-1 h-[4px] bg-[#e5e7eb] rounded-full" />
-          </div>
           
           <h1 className="font-['Inter:Semi_Bold',sans-serif] font-semibold text-[24px] text-[#1f2a37] leading-[32px] mb-2">
             Your Lifestyle Preferences
@@ -389,11 +424,18 @@ export function LifestylePreferencesFigma({ onBack, onComplete }: LifestylePrefe
 
       {/* Fixed Footer CTA */}
       <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-[#e5e7eb] px-6 py-4 z-10">
+        {saveError && (
+          <p role="alert" className="text-[12px] leading-4 text-red-600 text-center mb-2">
+            {saveError}
+          </p>
+        )}
         <button
+          type="button"
           onClick={handleContinue}
-          className="w-full bg-[#fe456a] text-white rounded-[8px] py-3 font-['Inter:Semi_Bold',sans-serif] font-semibold text-[16px] leading-[24px] hover:bg-[#e63d5f] transition-colors mb-2 shadow-[0px_8px_8px_0px_rgba(254,69,106,0.1),0px_20px_24px_0px_rgba(254,69,106,0.15)]"
+          disabled={saving}
+          className="w-full bg-[#fe456a] text-white rounded-[8px] py-3 font-['Inter:Semi_Bold',sans-serif] font-semibold text-[16px] leading-[24px] hover:bg-[#e63d5f] transition-colors mb-2 shadow-[0px_8px_8px_0px_rgba(254,69,106,0.1),0px_20px_24px_0px_rgba(254,69,106,0.15)] disabled:opacity-60"
         >
-          Continue
+          {saving ? "Saving..." : "Continue"}
         </button>
         <p className="font-['Inter:Regular',sans-serif] font-normal text-[12px] text-[#9da4ae] leading-[16px] text-center">
           You can change this later.

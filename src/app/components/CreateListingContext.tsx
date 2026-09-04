@@ -36,6 +36,8 @@ export interface LocationDetails {
   area: string;
   address: string;
   hideAddress: boolean;
+  latitude: number | null;
+  longitude: number | null;
 }
 
 export interface NearbyFacility {
@@ -52,6 +54,7 @@ export interface ListingData {
   idealFor: string[];
   nearbyFacilities: NearbyFacility[];
   rent: string;
+  rentPeriod: "night" | "week" | "month";
   deposit: string;
   moveInDate: string;
   minimumStay: string;
@@ -70,6 +73,7 @@ interface CreateListingContextType {
   updateNearbyFacilities: (facilities: NearbyFacility[]) => void;
   updatePriceAndAvailability: (data: {
     rent: string;
+    rentPeriod: "night" | "week" | "month";
     deposit: string;
     moveInDate: string;
     minimumStay: string;
@@ -98,10 +102,13 @@ const initialListingData: ListingData = {
     area: "",
     address: "",
     hideAddress: false,
+    latitude: null,
+    longitude: null,
   },
   idealFor: [],
   nearbyFacilities: [],
   rent: "",
+  rentPeriod: "month",
   deposit: "",
   moveInDate: "",
   minimumStay: "",
@@ -148,6 +155,7 @@ export function CreateListingProvider({ children }: { children: ReactNode }) {
 
   const updatePriceAndAvailability = (data: {
     rent: string;
+    rentPeriod: "night" | "week" | "month";
     deposit: string;
     moveInDate: string;
     minimumStay: string;

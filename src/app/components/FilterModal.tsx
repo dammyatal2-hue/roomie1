@@ -3,10 +3,10 @@ import { X, Hospital, ShoppingCart, Bus, GraduationCap, Dumbbell, Cross } from "
 
 interface FilterModalProps {
   onClose: () => void;
-  onApply: (count: number) => void;
+  onApply: (count: number, filters: FilterState) => void;
 }
 
-interface FilterState {
+export interface FilterState {
   livingSetup: string[];
   priceRange: [number, number];
   moveInDate: string[];
@@ -16,7 +16,7 @@ interface FilterState {
   nearbyFacilities: string[];
 }
 
-const initialFilters: FilterState = {
+export const initialFilters: FilterState = {
   livingSetup: [],
   priceRange: [0, 5000],
   moveInDate: [],
@@ -101,7 +101,7 @@ export function FilterModal({ onClose, onApply }: FilterModalProps) {
   };
 
   const handleApply = () => {
-    onApply(countActiveFilters());
+    onApply(countActiveFilters(), filters);
   };
 
   const handleClearAll = () => {
@@ -111,7 +111,7 @@ export function FilterModal({ onClose, onApply }: FilterModalProps) {
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-[#fcfcfd]">
       {/* Status Bar Spacer */}
-      <div className="h-[44px] bg-white" />
+      <div className="h-[max(env(safe-area-inset-top),8px)] bg-white" />
 
       {/* Header */}
       <div className="flex-none bg-white px-[24px] py-[16px] border-b border-[#e5e7eb] flex items-center justify-between">

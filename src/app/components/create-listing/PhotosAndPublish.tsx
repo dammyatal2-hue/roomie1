@@ -3,13 +3,14 @@ import { useCreateListing } from "../CreateListingContext";
 import { Upload, X, Home, User } from "lucide-react";
 
 interface PhotosAndPublishProps {
-  onPublish: () => void;
+  onPublish: (photos: File[], description: string) => void;
 }
 
 export function PhotosAndPublish({ onPublish }: PhotosAndPublishProps) {
   const { listingData, updatePhotosAndDescription } = useCreateListing();
   const [description, setDescription] = useState(listingData.description);
   const [photoUrls, setPhotoUrls] = useState<string[]>([]);
+  const [photoFiles, setPhotoFiles] = useState<File[]>(listingData.photos);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const maxDescriptionLength = 350;
@@ -22,16 +23,18 @@ export function PhotosAndPublish({ onPublish }: PhotosAndPublishProps) {
       // Create preview URLs
       const urls = fileArray.map((file) => URL.createObjectURL(file));
       setPhotoUrls((prev) => [...prev, ...urls]);
+      setPhotoFiles((prev) => [...prev, ...fileArray]);
     }
   };
 
   const removePhoto = (index: number) => {
     setPhotoUrls((prev) => prev.filter((_, i) => i !== index));
+    setPhotoFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
   const handlePublish = () => {
-    updatePhotosAndDescription([], description);
-    onPublish();
+    updatePhotosAndDescription(photoFiles, description);
+    onPublish(photoFiles, description);
   };
 
   const canPublish = photoUrls.length > 0 && description.trim() !== "";
@@ -162,7 +165,7 @@ export function PhotosAndPublish({ onPublish }: PhotosAndPublishProps) {
               </span>
             </div>
             <p className="font-['Inter:Semi_Bold',sans-serif] font-semibold text-[16px] leading-[24px] text-[#1f2a37] mb-[4px]">
-              ${listingData.rent || "—"}/month
+              ${listingData.rent || "—"}/{listingData.rentPeriod}
             </p>
             <p className="font-['Inter:Regular',sans-serif] font-normal text-[12px] leading-[18px] text-[#6b7280] line-clamp-2 mb-[12px]">
               {description || "No description yet..."}

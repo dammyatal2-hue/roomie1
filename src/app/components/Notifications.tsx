@@ -14,6 +14,7 @@ interface Notification {
   read: boolean;
   requestStatus?: RequestStatus;
   propertyTitle?: string;
+  entityId?: string;
 }
 
 interface NotificationsProps {
@@ -87,7 +88,7 @@ export function Notifications({ onBack, onNotificationClick }: NotificationsProp
   useEffect(() => {
     if (!user) return;
     const load = () => supabase.from("notifications").select("*").eq("user_id", user.id).order("created_at", { ascending: false }).then(({ data }) => {
-      if (data) setNotifications(data.map((row: any) => ({ id: row.id, type: row.type, userName: undefined, message: row.body, timestamp: new Date(row.created_at).toLocaleString(), read: Boolean(row.read_at), requestStatus: row.type === "request_accepted" ? "accepted" : row.type === "request_declined" ? "declined" : undefined })));
+      if (data) setNotifications(data.map((row: any) => ({ id: row.id, type: row.type, entityId: row.entity_id, userName: undefined, message: row.body, timestamp: new Date(row.created_at).toLocaleString(), read: Boolean(row.read_at), requestStatus: row.type === "request_accepted" ? "accepted" : row.type === "request_declined" ? "declined" : undefined })));
     });
     load();
     const channel = supabase.channel(`notifications:${user.id}`).on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications", filter: `user_id=eq.${user.id}` }, load).subscribe();
@@ -98,6 +99,13 @@ export function Notifications({ onBack, onNotificationClick }: NotificationsProp
     if (!user) return;
     await supabase.from("notifications").update({ read_at: new Date().toISOString() }).eq("user_id", user.id).is("read_at", null);
     setNotifications((rows) => rows.map((row) => ({ ...row, read: true })));
+  };
+  const openNotification = async (notification: Notification) => {
+    if (!notification.read) {
+      await supabase.from("notifications").update({ read_at: new Date().toISOString() }).eq("id", notification.id);
+      setNotifications((rows) => rows.map((row) => row.id === notification.id ? { ...row, read: true } : row));
+    }
+    onNotificationClick?.(notification);
   };
 
   const getNotificationIcon = (type: Notification["type"]) => {
@@ -120,23 +128,23 @@ export function Notifications({ onBack, onNotificationClick }: NotificationsProp
   return (
     <div className="size-full flex flex-col bg-[#fafafa]">
       {/* Status Bar Spacer */}
-      <div className="h-[44px] bg-white" />
+      <div className="h-[max(env(safe-area-inset-top),8px)] bg-white shrink-0" />
 
       {/* Header */}
-      <div className="bg-white px-[24px] py-[16px] border-b border-[#e5e7eb]">
+      <div className="bg-white px-[20px] py-[14px] border-b border-[#e5e7eb] shrink-0">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-[16px]">
+          <div className="flex items-center gap-[12px] min-w-0">
             <button
               onClick={onBack}
               className="p-[4px] hover:bg-[#f3f4f6] rounded-[8px] transition-colors"
             >
               <ArrowLeft className="w-[20px] h-[20px] text-[#1f2a37]" />
             </button>
-            <h1 className="font-['Inter:Semi_Bold',sans-serif] font-semibold text-[20px] leading-[26px] text-[#1f2a37]">
+            <h1 className="font-['Inter:Semi_Bold',sans-serif] font-semibold text-[18px] leading-[24px] text-[#1f2a37] truncate">
               Notifications
             </h1>
           </div>
-          <button onClick={markAllRead} className="font-['Inter:Medium',sans-serif] font-medium text-[13px] leading-[18px] text-[#fe456a] hover:text-[#e63d5f] transition-colors">
+          <button onClick={markAllRead} className="ml-3 shrink-0 font-['Inter:Medium',sans-serif] font-medium text-[13px] leading-[18px] text-[#fe456a] hover:text-[#e63d5f] transition-colors">
             Mark all read
           </button>
         </div>
@@ -166,7 +174,7 @@ export function Notifications({ onBack, onNotificationClick }: NotificationsProp
               return (
                 <button
                   key={notification.id}
-                  onClick={() => onNotificationClick?.(notification)}
+                  onClick={() => openNotification(notification)}
                   className={`w-full px-[24px] py-[16px] flex gap-[12px] hover:bg-[#fafafa] transition-colors text-left ${
                     !notification.read ? "bg-[#fef3f5]" : "bg-white"
                   }`}

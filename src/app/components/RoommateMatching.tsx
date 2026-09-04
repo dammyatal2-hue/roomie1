@@ -1,7 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { X, Heart, ArrowLeft, Sparkles } from "lucide-react";
 import { MatchCard } from "./MatchCard";
 import { MatchConfirmation } from "./MatchConfirmation";
+import { supabase } from "../../lib/supabase";
+import { useAuth } from "../auth/AuthProvider";
 
 interface RoommateProfile {
   id: string;
@@ -75,31 +77,49 @@ const MOCK_PROFILES: RoommateProfile[] = [
 
 interface RoommateMatchingProps {
   onBack: () => void;
+  onViewProfile?: (userId: string) => void;
 }
 
-export function RoommateMatching({ onBack }: RoommateMatchingProps) {
+export function RoommateMatching({ onBack, onViewProfile }: RoommateMatchingProps) {
+  const { user } = useAuth();
+  const [profiles, setProfiles] = useState<RoommateProfile[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [swipedProfiles, setSwipedProfiles] = useState<string[]>([]);
   const [matchedProfile, setMatchedProfile] = useState<RoommateProfile | null>(null);
 
-  const currentProfile = MOCK_PROFILES[currentIndex];
-  const hasMoreProfiles = currentIndex < MOCK_PROFILES.length;
+  useEffect(() => {
+    if (!user) return;
+    const load = async () => {
+      const [mine, location] = await Promise.all([
+        supabase.from("preferences").select("answers").eq("user_id", user.id).maybeSingle(),
+        supabase.from("profiles").select("city,country,looking_for_city,looking_for_country").eq("id", user.id).single(),
+      ]);
+      const targetCity = location.data?.looking_for_city || location.data?.city;
+      const targetCountry = location.data?.looking_for_country || location.data?.country;
+      if (!targetCity) { setProfiles([]); return; }
+      let query = supabase.from("profiles").select("id,username,full_name,avatar_url,bio,city,country,occupation,looking_for_city,preferences(answers)").neq("id", user.id).eq("roommate_discoverable", true).ilike("looking_for_city", targetCity);
+      if (targetCountry) query = query.ilike("looking_for_country", targetCountry);
+      const others = await query;
+      const own = (mine.data?.answers ?? {}) as Record<string,string>;
+      if (!others.data) return;
+      setProfiles(others.data.map((row:any) => {
+        const theirs=(row.preferences?.[0]?.answers ?? {}) as Record<string,string>; const keys=Object.keys(own); const shared=keys.filter((key)=>own[key] && own[key]===theirs[key]); const score=keys.length ? Math.round(60+(shared.length/keys.length)*40) : 60;
+        return { id:row.id, photoUrl:row.avatar_url || `https://api.dicebear.com/9.x/initials/svg?seed=${encodeURIComponent(row.username)}`, firstName:row.username, age:"", occupation:row.occupation || "", livingSetup:"Looking for a compatible roommate", location:row.looking_for_city || row.city || "Location not added", compatibilityScore:score, lifestyleTags:Object.values(theirs).filter((value): value is string => typeof value === "string"), matchingTags:shared.map((key)=>theirs[key]), bio:row.bio || "No bio added yet." };
+      }).sort((a,b)=>b.compatibilityScore-a.compatibilityScore));
+    };
+    load();
+  }, [user]);
+
+  const currentProfile = profiles[currentIndex];
+  const hasMoreProfiles = currentIndex < profiles.length;
 
   const handleSwipe = (direction: "left" | "right") => {
     if (!currentProfile) return;
 
     setSwipedProfiles([...swipedProfiles, currentProfile.id]);
 
-    if (direction === "right") {
-      // Simulate match (in real app, this would check if other user also swiped right)
-      const isMatch = Math.random() > 0.5; // 50% chance of match for demo
-      if (isMatch) {
-        setMatchedProfile(currentProfile);
-        return;
-      }
-    }
-
-    // Move to next profile
+    // Matching recommendations are real profiles; mutual matching will be
+    // persisted once both users explicitly opt in.
     setCurrentIndex(currentIndex + 1);
   };
 
@@ -124,7 +144,7 @@ export function RoommateMatching({ onBack }: RoommateMatchingProps) {
   return (
     <div className="size-full flex flex-col bg-[#fafafa]">
       {/* Status Bar Spacer */}
-      <div className="h-[44px] bg-white" />
+      <div className="h-[max(env(safe-area-inset-top),8px)] bg-white" />
 
       {/* Header */}
       <div className="bg-white px-[24px] py-[16px] border-b border-[#e5e7eb] flex items-center gap-[16px]">
@@ -145,7 +165,7 @@ export function RoommateMatching({ onBack }: RoommateMatchingProps) {
         <div className="flex items-center gap-[4px] px-[8px] py-[4px] bg-[#fef3f5] rounded-[12px]">
           <Sparkles className="w-[14px] h-[14px] text-[#fe456a]" />
           <span className="font-['Inter:Semi_Bold',sans-serif] font-semibold text-[11px] leading-[14px] text-[#fe456a]">
-            {MOCK_PROFILES.length - currentIndex}
+            {Math.max(profiles.length - currentIndex, 0)}
           </span>
         </div>
       </div>
@@ -157,6 +177,7 @@ export function RoommateMatching({ onBack }: RoommateMatchingProps) {
             profile={currentProfile}
             onSwipeLeft={() => handleSwipe("left")}
             onSwipeRight={() => handleSwipe("right")}
+            onViewProfile={() => onViewProfile?.(currentProfile.id)}
           />
         ) : (
           <div className="size-full flex flex-col items-center justify-center px-[32px]">
