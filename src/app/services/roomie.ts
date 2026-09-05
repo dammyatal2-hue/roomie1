@@ -3,7 +3,7 @@ import type { ListingData } from "../components/CreateListingContext";
 
 export async function publishListing(userId: string, data: ListingData) {
   if (!data.intent || !data.livingSetup) throw new Error("Complete the listing type and living setup.");
-  const { data: listing, error } = await supabase.from("listings").insert({
+  const listingPayload = {
     owner_id: userId, intent: data.intent, living_setup: data.livingSetup,
     title: `${data.livingSetup.replaceAll("-", " ")} in ${data.locationDetails.area}`,
     description: data.description, country: data.locationDetails.country, city: data.locationDetails.city,
@@ -12,7 +12,12 @@ export async function publishListing(userId: string, data: ListingData) {
     hide_address: data.locationDetails.hideAddress, rent: Number(data.rent), rent_period: data.rentPeriod, deposit: Number(data.deposit || 0),
     move_in_date: data.moveInDate, minimum_stay: data.minimumStay, ideal_for: data.idealFor,
     details: { space: data.spaceDetails, nearby: data.nearbyFacilities, roommates: data.existingRoommates }, status: "published",
-  }).select("id").single();
+  };
+  let { data: listing, error } = await supabase.from("listings").insert(listingPayload).select("id").single();
+  if (error && /rent_period|column .* does not exist/i.test(error.message)) {
+    const { rent_period: _rentPeriod, ...legacyPayload } = listingPayload;
+    ({ data: listing, error } = await supabase.from("listings").insert(legacyPayload).select("id").single());
+  }
   if (error) throw error;
   for (const [position, file] of data.photos.entries()) {
     const path = `${userId}/${listing.id}/${crypto.randomUUID()}-${file.name}`;
