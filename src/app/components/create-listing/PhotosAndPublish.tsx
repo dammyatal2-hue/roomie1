@@ -3,7 +3,7 @@ import { useCreateListing } from "../CreateListingContext";
 import { Upload, X, Home, User } from "lucide-react";
 
 interface PhotosAndPublishProps {
-  onPublish: (photos: File[], description: string) => void;
+  onPublish: (photos: File[], description: string) => void | Promise<void>;
 }
 
 export function PhotosAndPublish({ onPublish }: PhotosAndPublishProps) {
@@ -11,6 +11,7 @@ export function PhotosAndPublish({ onPublish }: PhotosAndPublishProps) {
   const [description, setDescription] = useState(listingData.description);
   const [photoUrls, setPhotoUrls] = useState<string[]>([]);
   const [photoFiles, setPhotoFiles] = useState<File[]>(listingData.photos);
+  const [publishing, setPublishing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const maxDescriptionLength = 350;
@@ -32,12 +33,18 @@ export function PhotosAndPublish({ onPublish }: PhotosAndPublishProps) {
     setPhotoFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const handlePublish = () => {
+  const handlePublish = async () => {
+    if (!canPublish || publishing) return;
     updatePhotosAndDescription(photoFiles, description);
-    onPublish(photoFiles, description);
+    setPublishing(true);
+    try {
+      await onPublish(photoFiles, description);
+    } finally {
+      setPublishing(false);
+    }
   };
 
-  const canPublish = photoUrls.length > 0 && description.trim() !== "";
+  const canPublish = photoFiles.length > 0 && description.trim() !== "";
 
   // Generate preview card data
   const getListingTypeLabel = () => {
@@ -205,15 +212,16 @@ export function PhotosAndPublish({ onPublish }: PhotosAndPublishProps) {
 
       {/* Publish Button */}
       <button
+        type="button"
         onClick={handlePublish}
-        disabled={!canPublish}
+        disabled={!canPublish || publishing}
         className={`w-full h-[52px] rounded-[8px] font-['Inter:Semi_Bold',sans-serif] font-semibold text-[16px] leading-[24px] transition-all duration-200 ${
           canPublish
             ? "bg-[#fe456a] text-white shadow-[0px_8px_8px_-4px_rgba(254,69,106,0.1),0px_20px_24px_-4px_rgba(254,69,106,0.15)] hover:bg-[#e63d5f]"
             : "bg-[#e5e7eb] text-[#9da4ae] cursor-not-allowed"
         }`}
       >
-        Publish Listing
+        {publishing ? "Publishing..." : "Publish Listing"}
       </button>
     </div>
   );
