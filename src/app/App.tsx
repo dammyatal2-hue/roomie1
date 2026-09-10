@@ -59,7 +59,13 @@ function AppContent() {
   const { session, loading: isLoading, signIn, signUp, signInWithOAuth, sendPasswordReset, updatePassword, signOut } = useAuth();
   const isAuthenticated = Boolean(session);
   const [passwordRecovery] = useState(() => new URLSearchParams(window.location.search).get("reset-password") === "true");
-  const [currentScreen, setCurrentScreen] = useState<AppScreen>(passwordRecovery ? "CHANGE_PASSWORD" : isAuthenticated ? "MAIN_TABS" : "GUEST_HOME");
+const [initialPath] = useState(() => window.location.pathname);
+const [currentScreen, setCurrentScreen] = useState<AppScreen>(
+  initialPath === "/privacy-policy" ? "PRIVACY_POLICY" :
+  initialPath === "/terms-of-service" ? "TERMS_OF_SERVICE" :
+  passwordRecovery ? "CHANGE_PASSWORD" :
+  isAuthenticated ? "MAIN_TABS" : "GUEST_HOME"
+);
   const [activeTab, setActiveTab] = useState("home");
   const [bookingRequestType, setBookingRequestType] = useState<"shared" | "entire">("shared");
   const [currentChatStatus, setCurrentChatStatus] = useState<RequestStatus | undefined>("accepted");
